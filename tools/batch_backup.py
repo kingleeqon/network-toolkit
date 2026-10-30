@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""批量备份设备配置（PRD FR-202）——新工具接入的样板实现。
+"""设备配置备份（PRD FR-202）——新工具接入的样板实现。
 
 要点：
 1. 不碰 UI，只用 emit / ctx；
@@ -49,9 +49,9 @@ def _run_e1000(session, cmd, timeout):
 
 class BatchBackupTool(BaseTool):
     id = "batch_backup"
-    name = "批量备份设备配置"
+    name = "设备配置备份"
     version = "1.2.0"
-    category = "采集类"
+    category = "采集分析类"
     description = "批量登录设备抓取配置并保存到结果目录；可按日期归档留档"
 
     params = [
@@ -96,6 +96,8 @@ class BatchBackupTool(BaseTool):
 
         def worker(dev):
             start = time.time()
+            # 进度区显示"当前正在处理的设备"（并发时以最近上报的为准）
+            ctx.report_current("%s %s" % (dev.ip, dev.hostname or ""))
             cmd = get_cmd(dev.vendor, "config") or get_cmd(dev.vendor, "interface")
             if not cmd:
                 raise ValueError("未配置该厂商的配置备份命令")

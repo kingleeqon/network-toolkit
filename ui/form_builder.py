@@ -54,6 +54,18 @@ class FormBuilder(object):
         self._device_count_label = None
         self._build()
 
+    def footer_row(self):
+        """最后一行参数之后可用的 grid 行号。
+
+        外部要在参数区下面挂东西（如「定时执行」条）时用，
+        避免用 pack 与本组件的 grid 混用（tkinter 会直接报错）。
+        """
+        n = len(self.params)
+        if not n:
+            return 0
+        rows = (n + 1) // 2 if getattr(self, "two_col", False) else n
+        return rows * 2
+
     # —— 渲染 ——
     def _build(self):
         two_col = len(self.params) >= TWO_COLUMN_THRESHOLD

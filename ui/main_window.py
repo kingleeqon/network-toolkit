@@ -17,12 +17,13 @@ import json
 import os
 import tkinter as tk
 import ttkbootstrap as ttk
+from pathlib import Path
 from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.tooltip import ToolTip
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.registry import Registry
-from core.scheduler import DailyScheduler
+from core.scheduler import SchedulerManager
 from core.task_engine import (CANCELLED, CANCELLING, FAILED, IDLE, PARTIAL,
                               RUNNING, SUCCEEDED, TaskEngine)
 from ui.form_builder import FormBuilder
@@ -30,6 +31,7 @@ from ui.log_view import LogView
 from ui.result_view import ResultView
 from ui.chart_view import ChartView
 from ui.auto_task_dialog import open_dialog as open_auto_task
+from ui.schedule_overview import open_dialog as open_schedule_overview
 from ui.credential_dialog import open_dialog as open_credential
 
 POLL_INTERVAL_MS = 100
@@ -118,6 +120,7 @@ class MainWindow(object):
         # 每个工具的输出缓存：tool_id -> {columns, rows, charts, logs, summary}
         # 切换工具时保留各自输出（结果表/图表/日志/摘要），切回即恢复，互不串台
         self._output_cache = {}
+        self._form_cache = {}        # 工具参数值缓存（按工具 id）
 
         # 界面字号（结果表/日志/摘要/图表统一生效，按工具可调并记忆）
         pref = load_ui_pref()
@@ -140,10 +143,11 @@ class MainWindow(object):
         self._load_tools()
         # 应用内定时器：到点自动跑「采集 + 备份 + 对比」（应用开着才有效）
         self._sched_log_targets = []      # 打开着的「定时任务」窗口的输出框
-        self.scheduler = DailyScheduler(on_log=self._on_scheduler_log,
-                                        on_status=self._on_scheduler_status)
+        self.scheduler = SchedulerManager(on_log=self._on_scheduler_log,
+                                          on_status=self._on_scheduler_status)
         self.scheduler.start()
         self.root.after(600, self._on_scheduler_status)
+        self.root.after(2000, self._tick_sched_status)
         self._apply_font_size()
         self._poll()
         # F11 全屏 / Esc 退出全屏：全屏时布局全靠 grid 权重自适应
@@ -319,6 +323,11 @@ class MainWindow(object):
         self.progress_label = ttk.Label(prog, text="尚未运行", width=16,
                                         bootstyle="secondary", anchor="e")
         self.progress_label.pack(side="right")
+        # 采集类任务动辄几百台，进度条上的"24/543"看不出采到哪台了，
+        # 这里单独显示当前正在处理的设备（IP + 设备名）
+        self.current_label = ttk.Label(prog, text="", width=42,
+                                       bootstyle="secondary", anchor="e")
+        self.current_label.pack(side="right", padx=(0, 10))
 
         # 结果输出区（标签页按工具的 output_tabs 声明动态重建）
         self.tabs = ttk.Notebook(lower, bootstyle="secondary")
@@ -410,6 +419,18 @@ class MainWindow(object):
         except Exception:
             pass
 
+    def _tick_sched_status(self):
+        """定时状态每 2 秒刷新一次（运行中的任务要显示已用时）。"""
+        try:
+            self._refresh_sched_bar()
+            self._on_scheduler_status()
+        except Exception:
+            pass
+        try:
+            self.root.after(2000, self._tick_sched_status)
+        except Exception:
+            pass
+
     def _on_scheduler_log(self, line):
         """定时任务子进程的输出：转到界面线程再显示。"""
         try:
@@ -430,13 +451,119 @@ class MainWindow(object):
                 pass
 
     def _on_scheduler_status(self, _text=None):
-        """刷新状态栏上的「每日自动」提示。"""
+        """状态栏显示"正在运行的定时任务"（有任务在跑时才显示）。"""
         try:
-            text = self.scheduler.status_text()
+            text = self.scheduler.running_text()
         except Exception:
             text = ""
         try:
-            self.sched_label.configure(text=text)
+            self.sched_label.configure(text=("定时运行中：%s" % text) if text else "")
+        except Exception:
+            pass
+        self._refresh_sched_bar()
+
+    # —— 每个工具的定时设置（时间可见、可改、可立即执行）——
+    def _current_params(self):
+        """当前工具参数区的值（定时任务要用的参数快照）。"""
+        out = {}
+        try:
+            for key, var in self.form.vars.items():
+                value = var.get()
+                if isinstance(value, bool):
+                    value = "true" if value else "false"
+                if value is not None:
+                    out[key] = value
+        except Exception:
+            pass
+        return out
+
+    def _build_sched_bar(self, tool):
+        """在参数区下方加一行定时设置。"""
+        self._sched_bar = None
+        self._sched_key = tool.id
+        item = self.scheduler.get(tool.id) if self.scheduler else {}
+        bar = ttk.Frame(self.form_frame)
+        # 必须用 grid：form_frame 里的参数控件都由 FormBuilder 用 grid 管理，
+        # 混用 pack 会抛 "cannot use geometry manager pack inside ..."。
+        bar.grid(row=self.form.footer_row(), column=0, columnspan=4,
+                 sticky="ew", pady=(10, 0))
+        ttk.Label(bar, text="定时执行", bootstyle="secondary").pack(side="left")
+        self.var_sched_at = tk.StringVar(value=item.get("at", "08:30"))
+        ent = ttk.Entry(bar, textvariable=self.var_sched_at, width=7)
+        ent.pack(side="left", padx=(6, 4))
+        ent.bind("<Return>", lambda e: self._save_sched())
+        ent.bind("<FocusOut>", lambda e: self._save_sched())
+        self.var_sched_on = tk.BooleanVar(value=bool(item.get("enabled")))
+        self.chk_sched = ttk.Checkbutton(bar, text="启用", variable=self.var_sched_on,
+                                        bootstyle="round-toggle",
+                                        command=self._save_sched)
+        self.chk_sched.pack(side="left")
+        self.lbl_sched = ttk.Label(bar, text="", bootstyle="secondary")
+        self.lbl_sched.pack(side="left", padx=(10, 0))
+        ttk.Button(bar, text="立即执行", width=9, bootstyle="secondary-outline",
+                   command=self._run_sched_now).pack(side="right", padx=(6, 0))
+        ttk.Button(bar, text="定时任务总览…", width=12, bootstyle="secondary-outline",
+                   command=self.show_auto_task).pack(side="right")
+        self._refresh_sched_bar()
+
+    def _refresh_sched_bar(self):
+        """刷新定时条上的状态文字（有任务在跑时显示已用时）。"""
+        if not getattr(self, "lbl_sched", None) or not self.scheduler:
+            return
+        try:
+            key = self._sched_key
+            self.lbl_sched.configure(text=self.scheduler.status_of(key))
+        except Exception:
+            pass
+
+    def _save_sched(self):
+        """保存当前工具的定时设置（时间 + 启用 + 当前参数快照）。"""
+        if not self.scheduler or not getattr(self, "_sched_key", None):
+            return
+        try:
+            self.scheduler.set_schedule(
+                self._sched_key,
+                at=self.var_sched_at.get(),
+                enabled=bool(self.var_sched_on.get()),
+                params=self._current_params())
+        except Exception:
+            pass
+        self._refresh_sched_bar()
+
+    def _run_sched_now(self):
+        """立即执行一次当前工具（走定时任务通道，日志进「运行日志」）。"""
+        if not self.scheduler or not getattr(self, "_sched_key", None):
+            return
+        self._save_sched()
+        ok, msg = self.scheduler.run_now(self._sched_key)
+        Messagebox.show_info(msg, title="定时任务" if ok else "无法执行", parent=self.root)
+        self._refresh_sched_bar()
+
+    def _last_device_list(self):
+        """最近一次用的设备清单路径（存在每日流水线配置里）。"""
+        try:
+            cfg = Path(__file__).resolve().parent.parent / "scripts" / "daily_config.json"
+            with open(str(cfg), "r", encoding="utf-8") as f:
+                return (json.load(f) or {}).get("devices", "") or ""
+        except Exception:
+            return ""
+
+    def _fill_recent_device_list(self):
+        """设备清单参数自动回填上次用的路径。
+
+        每天都是同一张设备表，每次点进工具都要重新选一遍很烦；
+        这里只填空值，不覆盖用户已经填好的。
+        """
+        try:
+            last = self._last_device_list()
+            if not last:
+                return
+            for spec in (self.current_tool.params or []):
+                if getattr(spec, "type", "") != "device_list":
+                    continue
+                var = self.form.vars.get(spec.key)
+                if var is not None and not var.get().strip():
+                    var.set(last)
         except Exception:
             pass
 
@@ -512,7 +639,7 @@ class MainWindow(object):
             node = self.tool_tree.insert("", "end", text=category, open=True)
             for t in items:
                 # 树里只放名字：加上 " (v1.0.0)" 后 260px 的树宽必然被截成
-                # "批量备份设备配置 (v1.0." 这种，版本号在右侧标题栏已有显示
+                # "设备配置备份 (v1.0." 这种，版本号在右侧标题栏已有显示
                 self.tool_tree.insert(node, "end", iid=t.id, text=t.name)
 
     def on_select_tool(self, _event=None):
@@ -542,6 +669,9 @@ class MainWindow(object):
         # 参数区宽度决定排两列还是一列（窄窗口排两列会把第二列切在右边缘）
         self.form = FormBuilder(self.form_frame, tool.params,
                                 avail_width=self._form_avail_width())
+        self._restore_form_values(tool)
+        self._fill_recent_device_list()
+        self._build_sched_bar(tool)
         self._add_font_row()
         # 换工具后参数区回到顶部并刷新滚动范围（否则新表单会停在上一份的滚动位置）
         try:
@@ -567,6 +697,10 @@ class MainWindow(object):
 
         self.progress_label.configure(text="尚未运行")
         self.progress.configure(value=0)
+        try:
+            self.current_label.configure(text="")
+        except Exception:
+            pass
         self.set_state(IDLE)
 
     # —— 显示字号（每个工具的参数区底部都有，作用于结果表/日志/摘要/图表）——
@@ -848,10 +982,39 @@ class MainWindow(object):
         except Exception:
             pass
 
+    # —— 参数值缓存（按工具隔离，切换工具不丢已填内容）——
+    def _save_form_values(self):
+        """把当前工具的参数值存起来。
+
+        只缓存输出不缓存参数的话，来回切两次工具，刚选好的
+        「昨日目录/今日目录」就没了，得重选一遍。
+        """
+        if self.current_tool is None or self.form is None:
+            return
+        try:
+            self._form_cache[self.current_tool.id] = {
+                k: v.get() for k, v in self.form.vars.items()
+            }
+        except Exception:
+            pass
+
+    def _restore_form_values(self, tool):
+        """恢复该工具上次填过的参数（没填过的保持默认/自动回填）。"""
+        vals = self._form_cache.get(tool.id) or {}
+        for key, value in vals.items():
+            var = self.form.vars.get(key)
+            if var is None:
+                continue
+            try:
+                var.set(value)
+            except Exception:
+                pass
+
     # —— 输出分组缓存（按工具隔离结果表/图表/日志/摘要，切换不串台）——
     def _save_outputs(self):
         if self.current_tool is None:
             return
+        self._save_form_values()
         self._output_cache[self.current_tool.id] = {
             "columns": list(self.result_view.columns),
             "rows": list(self.result_view.rows),
@@ -955,6 +1118,11 @@ class MainWindow(object):
             self.progress.configure(value=percent)
             self.progress_label.configure(text="%d/%d" % (current, total))
             self.stat_label.configure(text="已处理 %d / %d" % (current, total))
+            item = payload.get("item") or ""
+            if len(item) > 40:
+                # 设备名可能很长（"路由器(BOSS-...)"），截断时保留前面的 IP
+                item = item[:39] + "…"
+            self.current_label.configure(text=("当前：%s" % item) if item else "")
         elif value == "result":
             self.result_view.add_row(payload.get("row", []), payload.get("status", ""))
         elif value == "chart":
@@ -1025,9 +1193,9 @@ class MainWindow(object):
             Messagebox.show_error("打开凭证窗口失败：%s" % exc, title="出错")
 
     def show_auto_task(self):
-        """打开「定时任务」设置窗口（选设备清单/日志目录、设置每天自动执行）。"""
+        """打开「定时任务总览」：所有工具的定时时间、启停、状态、立即执行。"""
         try:
-            open_auto_task(self, getattr(self, "scheduler", None))
+            open_schedule_overview(self.root, getattr(self, "scheduler", None))
         except Exception as exc:
             Messagebox.show_error("打开定时任务窗口失败：%s" % exc, title="出错")
 
@@ -1055,7 +1223,7 @@ class MainWindow(object):
             self.engine.cancel()
         # 停掉应用内定时器（正在跑的子进程让它自己跑完）
         try:
-            getattr(self, "scheduler", None) and self.scheduler.stop()
+            getattr(self, "scheduler", None) and self.scheduler.stop_all()
         except Exception:
             pass
         self.root.destroy()

@@ -23,6 +23,11 @@ class TaskContext:
         self._emit = emit
         self._tool = None          # 由引擎注入，用于取 result_columns
         self._devices_cache = {}   # path -> List[Device]
+        # 运行日志落盘：run.log 全量、error.log 只有 WARN/ERROR
+        self._run_log = None
+        self._err_log = None
+        self._total = 0
+        self._done = 0
 
     # —— 消息投递 ——
     def emit(self, type_, payload):
@@ -33,6 +38,40 @@ class TaskContext:
         if ip:
             payload["ip"] = ip
         self.emit(MsgType.LOG, payload)
+        self._write_log(level, msg, ip)
+
+    def _write_log(self, level, msg, ip=None):
+        """写运行日志文件。
+
+        界面里的「运行日志」是内存态，刷新就没了；采集这类任务动辄几十分钟，
+        必须留一份可回查的文本。run.log 记全部，error.log 只记 WARN/ERROR。
+        """
+        try:
+            from datetime import datetime
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            line = "%s [%s]%s %s\n" % (stamp, level,
+                                        (" [%s]" % ip) if ip else "", msg)
+            if self._run_log is None:
+                self._run_log = open(str(self.output_dir / "run.log"), "a",
+                                     encoding="utf-8")
+            self._run_log.write(line)
+            self._run_log.flush()
+            if level.upper() in ("WARN", "WARNING", "ERROR"):
+                if self._err_log is None:
+                    self._err_log = open(str(self.output_dir / "error.log"), "a",
+                                         encoding="utf-8")
+                self._err_log.write(line)
+                self._err_log.flush()
+        except Exception:
+            pass
+
+    def report_current(self, label):
+        """上报"当前正在处理的条目"，界面进度区实时显示（不刷日志）。"""
+        try:
+            self.emit(MsgType.PROGRESS, {"current": self._done, "total": self._total,
+                                         "item": label})
+        except Exception:
+            pass
 
     # —— 设备清单 ——
     def load_devices(self, param_value):
@@ -65,8 +104,10 @@ class TaskContext:
         worker(item) -> row(list) 或 (row, status)；抛异常时由框架归类失败原因。
         """
         total = len(items)
+        self._total = total
+        self._done = 0
         if total == 0:
-            self.emit(MsgType.PROGRESS, {"current": 0, "total": 0})
+            self.emit(MsgType.PROGRESS, {"current": 0, "total": 0, "item": ""})
             return []
 
         columns = result_columns or (self._tool.result_columns if self._tool else None)
@@ -105,7 +146,9 @@ class TaskContext:
                         results.append((item, status))
 
                 done += 1
-                self.emit(MsgType.PROGRESS, {"current": done, "total": total})
+                self._done = done
+                self.emit(MsgType.PROGRESS, {"current": done, "total": total,
+                                             "item": item_label(item)})
 
         return results
 

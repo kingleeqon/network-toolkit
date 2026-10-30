@@ -211,7 +211,13 @@ def run_cli(tool_id, params):
     print("统计：%s" % engine.stats)
     if engine.output_dir:
         print("结果目录：%s" % engine.output_dir)
-    return 0 if engine.state == "SUCCEEDED" else 1
+    # 退出码语义：0=全部成功 2=部分成功（跑完但有失败项）1=失败/异常
+    # 定时任务据此区分「正常完成」「带错完成」「没跑成」
+    if engine.state == "SUCCEEDED":
+        return 0
+    if engine.state == "PARTIAL":
+        return 2
+    return 1
 
 
 def _parse_cli_params(args):

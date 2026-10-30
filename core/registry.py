@@ -23,6 +23,10 @@ def _iter_tool_modules(tools_dir):
         yield path
 
 
+# 左侧工具树的分类显示顺序（未列出的排在后面，按名称排）
+CATEGORY_ORDER = ["采集分析类", "会话管理类", "解析类", "检查类", "工具类", "示例"]
+
+
 class Registry:
     def __init__(self, tools_dir):
         self.tools_dir = Path(tools_dir)
@@ -84,7 +88,15 @@ class Registry:
         return None
 
     def by_category(self):
+        """按分类分组，并按 CATEGORY_ORDER 排序。
+
+        左侧树默认按注册顺序排，"采集分析类"会掉到最底部——760 高的窗口
+        只露得出 3 个工具，"设备配置备份"还得滚动才看得到。把常用的
+        采集/分析类提到最前面。
+        """
         grouped = {}
         for t in self.tools:
             grouped.setdefault(t.category, []).append(t)
-        return grouped
+        order = {name: i for i, name in enumerate(CATEGORY_ORDER)}
+        return dict(sorted(grouped.items(),
+                           key=lambda kv: (order.get(kv[0], 99), kv[0])))

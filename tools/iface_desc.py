@@ -29,7 +29,7 @@ class IfaceDescTool(BaseTool):
     id = "iface_desc"
     name = "接口描述采集"
     version = "1.0.0"
-    category = "采集类"
+    category = "采集分析类"
     description = "批量采集设备接口描述（聚合口），导出 Excel"
 
     params = [

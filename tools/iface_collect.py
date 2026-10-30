@@ -70,9 +70,9 @@ def _run_e1000(session, cmd, timeout):
 
 class IfaceCollectTool(BaseTool):
     id = "iface_collect"
-    name = "接口数据采集"
+    name = "接口信息采集"
     version = "1.4.0"
-    category = "采集类"
+    category = "采集分析类"
     description = ("批量登录设备采集接口原始数据（含迪普/烽火），落盘到结果目录；"
                    "可同时归档成 <日期>/<设备名>.log，供「接口CRC对比分析」直接消费")
 
@@ -136,6 +136,8 @@ class IfaceCollectTool(BaseTool):
 
         def worker(dev):
             start = time.time()
+            # 进度区显示"当前正在处理的设备"（并发时以最近上报的为准）
+            ctx.report_current("%s %s" % (dev.ip, dev.hostname or ""))
             # 命令按厂商 + 产品类型取（烽火按设备名分防火墙/交换机）
             cmd = get_cmd(dev.vendor, "interface", device_name=dev.hostname)
             if not cmd:

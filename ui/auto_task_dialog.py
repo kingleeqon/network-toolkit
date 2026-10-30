@@ -43,7 +43,7 @@ class AutoTaskDialog(object):
         # master 可能是主窗口对象，也可能就是 tk 根；Toplevel 需要真正的 tk 父窗口
         parent = getattr(master, "root", master)
         self.win = ttk.Toplevel(parent)
-        self.win.title("每日自动任务：采集接口 + 备份配置 + CRC 对比")
+        self.win.title("每日流水线设置（采集 + 备份 + CRC 对比）")
         self.win.geometry("780x660")
         self.win.minsize(700, 560)
         try:
@@ -311,9 +311,11 @@ class AutoTaskDialog(object):
                                  title="已保存", parent=self.win)
             return
         try:
-            self.scheduler.save_settings(True, cfg.get("daily_time", "08:30"))
+            from core.scheduler import PIPELINE_KEY
+            self.scheduler.set_schedule(PIPELINE_KEY, at=cfg.get("daily_time", "08:30"),
+                                        enabled=True)
             self.refresh_status()
-            nxt = self.scheduler.next_run_at()
+            nxt = self.scheduler.next_run_at(PIPELINE_KEY)
             Messagebox.show_info(
                 "已启用自动执行。\n\n下次执行：%s\n（程序保持打开即可，关闭后不会执行）"
                 % (nxt.strftime("%m-%d %H:%M") if nxt else "-"),
@@ -339,7 +341,8 @@ class AutoTaskDialog(object):
             # 调度器的输出会转到本窗口（主窗口把它加进了 _sched_log_targets）
             self._append("（由应用内调度器执行，日志实时显示在这里）")
             try:
-                if not self.scheduler.run_now(force=True):
+                from core.scheduler import PIPELINE_KEY
+                if not self.scheduler.run_now(PIPELINE_KEY):
                     self._running = False
                     self.btn_run.configure(state="normal", text="立即执行一次")
                     self._append("上一次执行还没结束")
@@ -383,16 +386,18 @@ class AutoTaskDialog(object):
             self.var_sched.set("（当前版本没有内置调度器）")
             return
         try:
-            nxt = self.scheduler.next_run_at()
+            from core.scheduler import PIPELINE_KEY
+            nxt = self.scheduler.next_run_at(PIPELINE_KEY)
             when = nxt.strftime("%m-%d %H:%M") if nxt else "-"
-            last = self.scheduler.last or {}
+            item = self.scheduler.get(PIPELINE_KEY) or {}
+            last = item.get("last") or {}
             if last:
                 flag = "成功" if last.get("code") == 0 else "失败(退出码 %s)" % last.get("code")
                 txt = "下次执行：%s　　上次执行：%s %s" % (
                     when, last.get("at", "-"), flag)
             else:
                 txt = "下次执行：%s　　（还没有执行记录）" % when
-            if not self.scheduler.enabled:
+            if not item.get("enabled"):
                 txt = "未启用自动执行　｜　" + txt
             self.var_sched.set(txt)
         except Exception as exc:
