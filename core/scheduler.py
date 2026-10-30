@@ -23,6 +23,10 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from core.exit_codes import (CLI_PARTIAL, PIPE_BACKUP_FAIL, PIPE_BAD_CONFIG,
+                             PIPE_COLLECT_FAIL, PIPE_COMPARE_FAIL,
+                             PIPE_DATE_DIR_LACK)
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = BASE_DIR / "scripts"
 STORE_PATH = SCRIPTS_DIR / "schedules.json"
@@ -64,22 +68,31 @@ def elapsed_text(seconds):
     return "%d:%02d:%02d" % (seconds // 3600, (seconds % 3600) // 60, seconds % 60)
 
 
-def exit_code_text(code):
+def exit_code_text(code, is_pipeline=False):
     """退出码 → 状态文案。
 
-    与 main.py --cli 约定一致：0=全部成功 2=部分成功（跑完但有失败项）1=失败/异常。
-    流水线（daily_crc.py）另有 3=无设备可采。
+    两套语义（见 core/exit_codes.py）：
+    - 单工具 --cli：0=成功 2=部分失败（跑完带错）1=失败/异常
+    - 每日流水线：0=成功 2=日期目录不足 3=采集未成功 4=对比失败
+      5=配置有误 6=备份失败（不阻断）
     """
     try:
         code = int(code)
     except (TypeError, ValueError):
-        return "成功" if code == 0 else "失败(%s)" % code
+        return "失败(%s)" % code
     if code == 0:
         return "成功"
-    if code == 2:
+    if is_pipeline:
+        pipeline = {
+            PIPE_DATE_DIR_LACK: "日期目录不足",
+            PIPE_COLLECT_FAIL: "采集未成功",
+            PIPE_COMPARE_FAIL: "对比失败",
+            PIPE_BAD_CONFIG: "配置有误",
+            PIPE_BACKUP_FAIL: "备份失败(对比已跑)",
+        }
+        return pipeline.get(code, "失败(退出码 %d)" % code)
+    if code == CLI_PARTIAL:
         return "部分失败"
-    if code == 3:
-        return "无设备可采"
     return "失败(退出码 %d)" % code
 
 
@@ -95,13 +108,17 @@ class SchedulerManager(object):
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
+        self._reg = None         # Registry 缓存（工具清单运行期不变）
 
     # ---------- 存储 ----------
     def _read(self):
         try:
             with open(str(self.store_path), "r", encoding="utf-8") as f:
                 return json.load(f) or {}
-        except Exception:
+        except FileNotFoundError:
+            return {}
+        except Exception as exc:
+            self._warn("定时配置读取失败：%s" % exc)
             return {}
 
     def _write(self, data):
@@ -109,8 +126,14 @@ class SchedulerManager(object):
             self.store_path.parent.mkdir(parents=True, exist_ok=True)
             with open(str(self.store_path), "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._warn("定时配置写入失败：%s" % exc)
+
+    @staticmethod
+    def _warn(msg):
+        """存储失败不能静默吞掉，至少降级输出到 stderr。"""
+        import sys
+        print("[WARN] %s" % msg, file=sys.stderr)
 
     def entries(self):
         """全部定时条目 {key: {...}}。"""
@@ -147,14 +170,20 @@ class SchedulerManager(object):
         return {k: v for k, v in self._read().items() if v.get("enabled")}
 
     # ---------- 标题与命令 ----------
+    def _registry(self):
+        """工具注册表（懒加载缓存）：title_of/build_cmd 高频调用，不再每次全量扫描。"""
+        if self._reg is None:
+            from core.registry import Registry
+            reg = Registry(BASE_DIR / "tools")
+            reg.discover()
+            self._reg = reg
+        return self._reg
+
     def title_of(self, key):
         if key == PIPELINE_KEY:
             return "每日流水线（采集 + 备份 + 对比）"
         try:
-            from core.registry import Registry
-            reg = Registry(BASE_DIR / "tools")
-            reg.discover()
-            tool = reg.get(key)
+            tool = self._registry().get(key)
             if tool is not None:
                 return tool.name
         except Exception:
@@ -168,10 +197,7 @@ class SchedulerManager(object):
             return ([sys.executable, "-u", str(SCRIPTS_DIR / "daily_crc.py"),
                      "--config", str(DAILY_CONFIG)], str(BASE_DIR))
         try:
-            from core.registry import Registry
-            reg = Registry(BASE_DIR / "tools")
-            reg.discover()
-            tool = reg.get(key)
+            tool = self._registry().get(key)
         except Exception:
             tool = None
         if tool is None:
@@ -231,7 +257,7 @@ class SchedulerManager(object):
         when = nxt.strftime("%m-%d %H:%M") if nxt else "-"
         last = item.get("last") or {}
         if last and last.get("date") == datetime.now().strftime(DAY_KEY):
-            flag = exit_code_text(last.get("code"))
+            flag = exit_code_text(last.get("code"), is_pipeline=(key == PIPELINE_KEY))
             return "下次 %s　今天已执行：%s" % (when, flag)
         return "下次 %s" % when
 

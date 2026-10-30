@@ -11,7 +11,7 @@ from datetime import datetime
 from queue import Empty, Queue
 from typing import Callable, Dict, List, Optional
 
-from core.errors import map_fail_reason
+from core.errors import is_sensitive_key, map_fail_reason, redact_text
 from core.message import DRAIN_LIMIT_PER_TICK, ItemStatus, MsgType, STATUS_TEXT
 from core.result_writer import create_task_dirs, write_summary
 from core.task_context import TaskContext
@@ -146,8 +146,8 @@ class TaskEngine:
             self._errored = True
             self._emit(MsgType.ERROR, {
                 "code": "BATCH_ERROR",
-                "msg": "任务执行失败：%s" % exc,
-                "detail": "%s: %s" % (type(exc).__name__, exc),
+                "msg": "任务执行失败：%s" % redact_text(str(exc)),
+                "detail": "%s: %s" % (type(exc).__name__, redact_text(str(exc))),
             })
         finally:
             # 工具若已自行发出 done，此处不再重复发送
@@ -158,7 +158,6 @@ class TaskEngine:
         if self.state in TERMINAL_STATES:
             return
         self._closed.set()
-        self._done_emitted = True
         total = self.stats["total"]
         success = self.stats["success"]
         fail = self.stats["fail"]
@@ -178,8 +177,9 @@ class TaskEngine:
         else:
             self.state = PARTIAL
 
+        # 敏感参数（password/pwd/token/credential 等）一律不进审计快照
         params_snapshot = {k: v for k, v in self.params.items()
-                           if "password" not in k.lower() and "secret" not in k.lower()}
+                           if not is_sensitive_key(k)}
         summary = {
             "task_id": self.task_id,
             "tool_id": self.tool.id,

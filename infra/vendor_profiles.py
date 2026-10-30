@@ -105,8 +105,9 @@ def get_cmd(vendor, cmd_key, device_name=None):
 def get_product(vendor, device_name=None):
     """返回厂商产品类型：switch | firewall | None。
 
-    烽火按设备名判断：含 DP / FW1000 的按防火墙，其余按交换机
-    （现场脚本 netmiko_SSH_device_system.py 的 detect_fiberhome_product）。
+    只有配置里声明了 products 的厂商才按设备名（name_marks）分产品；
+    烽火只有交换机，products 里只剩 switch 分支，恒返回 switch。
+    其余厂商直接用 product 字段（如迪普恒为 firewall）。
     """
     cfg, _ = get_profile(vendor)
     products = cfg.get("products") or {}
@@ -125,7 +126,7 @@ def get_paging_cmd(vendor, device_ip=None, device_name=None, for_backup=False):
 
     - 华为：screen-length 0 temporary
     - 思科/锐捷/中兴：terminal length 0
-    - 烽火：**接口采集**按产品分（防火墙 terminal line 0 / 交换机 terminal length 0），
+    - 烽火：**接口采集**统一 terminal length 0（交换机），
       **配置备份**按 IP 名单分（现场脚本 netmiko_SSH.py 的那批 IP 用 terminal line 0）
     """
     cfg, _ = get_profile(vendor)
@@ -145,13 +146,25 @@ def get_paging_cmd(vendor, device_ip=None, device_name=None, for_backup=False):
 
 
 def get_device_type_label(vendor, device_name=None):
-    """写进日志首行的设备类型标识（解析器靠它准确识别厂商）。"""
+    """写进日志首行的设备类型标识（解析器靠它准确识别厂商）。
+
+    迪普与烽火是两个独立厂商，必须按厂商本身判定，不能按产品类型判断：
+    烽火只有交换机，此前若按 get_product 判断，名字含 DP 的烽火交换机
+    会被误判成 firewall，进而被误标成 DPtech，导致 CRC 对比阶段把烽火设备
+    按迪普规则解析、厂商错判。
+    """
+    key = match_vendor(vendor)
+    if key in ("dipu", "dptech", "dp"):
+        # 迪普统一标 DPtech
+        return "DPtech"
+    if key == "fiberhome":
+        # 烽火统一标 FiberHome（只有交换机）
+        return "FiberHome"
+
+    # 其余厂商：优先用配置里的 netmiko_device_type，缺失则回退到标准 key
     cfg, _ = get_profile(vendor)
     label = cfg.get("netmiko_device_type") or ""
-    if not label:
-        product = get_product(vendor, device_name)
-        label = "DPtech" if product == "firewall" else "FiberHome"
-    return label
+    return label or key
 
 
 def get_e1000(ip):

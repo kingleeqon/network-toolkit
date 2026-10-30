@@ -4,12 +4,12 @@
 工具通过它获取输出目录、取消信号、设备数据、凭证与连接能力。
 run_parallel 内置并发、取消检查与异常隔离，工具无需自己写线程池。
 """
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 from threading import Event
 from typing import Any, Callable, Dict, List, Optional
 
-from core.errors import map_fail_reason, status_text
+from core.errors import map_fail_reason, redact_text, status_text
 from core.message import ItemStatus, MsgType
 
 
@@ -62,8 +62,10 @@ class TaskContext:
                                          encoding="utf-8")
                 self._err_log.write(line)
                 self._err_log.flush()
-        except Exception:
-            pass
+        except Exception as exc:
+            # 落盘失败不能吞：界面日志还在，这里降级记录到 stderr 便于排查
+            import sys
+            print("[WARN] 运行日志写入失败：%s" % exc, file=sys.stderr)
 
     def report_current(self, label):
         """上报"当前正在处理的条目"，界面进度区实时显示（不刷日志）。"""
@@ -113,42 +115,69 @@ class TaskContext:
         columns = result_columns or (self._tool.result_columns if self._tool else None)
         done = 0
         results = []
+        emitted = set()   # 已出结果的 future，收尾补账时跳过
 
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {}
-            for it in items:
-                futures[ex.submit(worker, it)] = it
+        def _consume(fut, item):
+            """消费一个 future 的结果（成功/失败都转成 result 行）。"""
+            if fut.cancelled():
+                self._emit_result(item, None, ItemStatus.SKIPPED, columns)
+                results.append((item, ItemStatus.SKIPPED))
+                return
+            try:
+                out = fut.result()
+                status = ItemStatus.OK
+                row = out
+                if isinstance(out, tuple) and len(out) == 2:
+                    row, status = out
+                self._emit_result(item, row, status, columns)
+                results.append((item, status))
+            except Exception as exc:  # 设备级异常隔离
+                status = map_fail_reason(exc)
+                self.log("%s 执行失败：%s: %s" % (item_label(item), type(exc).__name__,
+                                                 redact_text(str(exc))),
+                         level="ERROR", ip=getattr(item, "ip", None))
+                self._emit_result(item, None, status, columns)
+                results.append((item, status))
 
-            for fut in as_completed(futures):
-                item = futures[fut]
-                if self.cancel_event.is_set():
-                    for f in futures:
-                        if not f.done():
+        # 不用 with：退出时 shutdown(wait=True) 会把取消后的收尾拖到所有
+        # 在途设备超时结束（最坏几百秒），界面一直卡「中止中」。
+        ex = ThreadPoolExecutor(max_workers=max_workers)
+        try:
+            futures = {ex.submit(worker, it): it for it in items}
+            pending = set(futures)
+            try:
+                while pending:
+                    if self.cancel_event.is_set():
+                        for f in pending:
                             f.cancel()
-
-                if fut.cancelled():
-                    self._emit_result(item, None, ItemStatus.SKIPPED, columns)
-                    results.append((item, ItemStatus.SKIPPED))
-                else:
-                    try:
-                        out = fut.result()
-                        status = ItemStatus.OK
-                        row = out
-                        if isinstance(out, tuple) and len(out) == 2:
-                            row, status = out
-                        self._emit_result(item, row, status, columns)
-                        results.append((item, status))
-                    except Exception as exc:  # 设备级异常隔离
-                        status = map_fail_reason(exc)
-                        self.log("%s 执行失败：%s: %s" % (item_label(item), type(exc).__name__, exc),
-                                 level="ERROR", ip=getattr(item, "ip", None))
-                        self._emit_result(item, None, status, columns)
-                        results.append((item, status))
-
-                done += 1
-                self._done = done
-                self.emit(MsgType.PROGRESS, {"current": done, "total": total,
-                                             "item": item_label(item)})
+                        break        # 立即收尾，不再等剩余任务
+                    # wait 带超时轮询：as_completed 会阻塞到第一个任务完成
+                    # 才回到循环体，长超时任务在途时取消信号根本看不到
+                    done_set, pending = wait(pending, timeout=0.5,
+                                             return_when=FIRST_COMPLETED)
+                    for fut in done_set:
+                        item = futures[fut]
+                        _consume(fut, item)
+                        emitted.add(fut)
+                        done += 1
+                        self._done = done
+                        self.emit(MsgType.PROGRESS, {"current": done, "total": total,
+                                                     "item": item_label(item)})
+            finally:
+                # 补账：结果条数与 items 对齐——
+                # 已跑完没消费的补发真实结果；没跑的补 SKIPPED
+                for fut, item in futures.items():
+                    if fut in emitted:
+                        continue
+                    if fut.done() and not fut.cancelled():
+                        _consume(fut, item)
+                    else:
+                        self._emit_result(item, None, ItemStatus.SKIPPED, columns)
+                        results.append((item, ItemStatus.SKIPPED))
+        finally:
+            # wait=False：在途设备由各自的超时自然结束，任务状态立即收尾；
+            # 未启动的 future 上面已手动 cancel
+            ex.shutdown(wait=False)
 
         return results
 

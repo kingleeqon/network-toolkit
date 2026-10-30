@@ -90,14 +90,16 @@ class CrcCompareTool(BaseTool):
                 skipped += 1
                 continue
 
-            c2 = self._read_crc(f2, ctx)
-            c1 = self._read_crc(f1, ctx)
+            c2, text2 = self._read_crc(f2, ctx)
+            c1, _ = self._read_crc(f1, ctx)
             if not c2 or not c1:
                 ctx.log("%s 提取失败，跳过" % filename, level="WARN")
                 skipped += 1
                 continue
 
-            vendor = detect_vendor(f2.read_text(encoding="utf-8", errors="ignore"))
+            # 厂商识别复用 _read_crc 已解码的文本（utf-8→gbk 回退），
+            # 不再二次读盘，也避免纯 utf-8 重读时 GBK 日志中文被吞导致误判
+            vendor = detect_vendor(text2)
             vendor_stats[vendor] = vendor_stats.get(vendor, 0) + 1
 
             all_ifaces = set(c2.keys()) | set(c1.keys())
@@ -133,6 +135,9 @@ class CrcCompareTool(BaseTool):
     def _read_crc(path, ctx):
         """读日志：utf-8 优先，失败回退 GBK（SecureCRT 之类导出的日志常见）。
 
+        返回 (crc_info, content)；读取/解析失败返回 (None, None)。
+        content 一并返回供厂商识别复用，避免重复读盘与编码不一致。
+
         原来固定 utf-8 + errors="ignore"：GBK 日志里的中文会被整段吞掉，
         虽然接口名/CRC 这些 ASCII 还能匹配上，但一旦日志是 GBK 且带损坏字节，
         整行会被丢弃、CRC 就解析不到了。
@@ -141,7 +146,7 @@ class CrcCompareTool(BaseTool):
             raw = path.read_bytes()
         except Exception as e:
             ctx.log("读取失败 %s: %s" % (path.name, e), level="WARN")
-            return None
+            return None, None
         content = None
         for enc in ("utf-8-sig", "utf-8", "gbk"):
             try:
@@ -152,7 +157,7 @@ class CrcCompareTool(BaseTool):
         if content is None:
             content = raw.decode("utf-8", errors="ignore")
         info = extract_crc_info(content)
-        return info if info else None
+        return (info, content) if info else (None, None)
 
     @staticmethod
     def _write_excel(rows, date_str, ctx):

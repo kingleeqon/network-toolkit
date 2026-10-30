@@ -56,11 +56,8 @@ class ZteCheckTool(BaseTool):
             # 返回多行会与 result_columns 冲突，取一行摘要 + 其余写日志
             return self._summarize(dev, rows)
 
-        def worker_wrapper(dev):
-            return worker(dev)
-
         ctx.log("开始检查：%d 台设备" % len(devices))
-        ctx.run_parallel(devices, worker_wrapper, result_columns=self.result_columns,
+        ctx.run_parallel(devices, worker, result_columns=self.result_columns,
                          max_workers=concurrency)
         emit("done", {"summary": {"total": len(devices)}})
 

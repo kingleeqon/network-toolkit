@@ -354,10 +354,12 @@ def _parse_rows(rows, errors, default_credential_ref):
         d.ip = _extract_ip(d.ip)
         if not _valid_ip(d.ip):
             bad_ip_count += 1
-            if bad_ip_samples and d.ip not in bad_ip_samples:
+            # 收集前 5 个样本用于错误提示；列表为空时首个样本也要收
+            # （原来写 if bad_ip_samples and ... 会把第一个非法 IP 漏掉）
+            if len(bad_ip_samples) < 5 and d.ip not in bad_ip_samples:
                 bad_ip_samples.append(d.ip)
-                if len(bad_ip_samples) >= 5:
-                    bad_ip_samples.append("…")
+                if len(bad_ip_samples) == 5:
+                    bad_ip_samples.append("…")   # 只加一次，表示后面还有
             continue
         if d.ip in seen:
             # 同一台设备在「告警配置列表」里会出现很多行（一个接口一行），

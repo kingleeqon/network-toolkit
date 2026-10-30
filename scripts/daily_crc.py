@@ -25,6 +25,7 @@
     scripts\\install_task.bat scripts\\daily_config.json 08:30
 
 退出码：0 全成功 / 2 日期目录不足 / 3 采集失败 / 4 对比失败 / 5 配置有误 / 6 配置备份失败
+（常量定义见 core/exit_codes.py 的 PIPE_*）
 """
 import argparse
 import json
@@ -37,6 +38,10 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
+
+from core.exit_codes import (PIPE_BACKUP_FAIL, PIPE_BAD_CONFIG,  # noqa: E402
+                             PIPE_COLLECT_FAIL, PIPE_COMPARE_FAIL,
+                             PIPE_DATE_DIR_LACK, PIPE_OK, PIPE_TASK_FAIL)
 
 _DATE_RE = re.compile(r"(20\d{2})[-_]?(\d{1,2})[-_]?(\d{1,2})")
 _MARKER = BASE_DIR / "output" / "crc_compare" / ".last_auto_run.json"
@@ -294,22 +299,22 @@ def main():
     if args.status:
         exists, text = query_task()
         print(("定时任务：%s" % text) if exists else "尚未注册定时任务")
-        return 0
+        return PIPE_OK
     if args.remove_task:
         ok, msg = remove_task()
         print(msg)
-        return 0 if ok else 1
+        return PIPE_OK if ok else PIPE_TASK_FAIL
     if args.install_task:
         ok, msg = install_task(args.config, args.install_task)
         print(msg)
-        return 0 if ok else 1
+        return PIPE_OK if ok else PIPE_TASK_FAIL
 
     logger.info("=" * 64)
     try:
         cfg = load_config(args.config)
     except Exception as exc:
         logger.error("配置读取失败：%s", exc)
-        return 5
+        return PIPE_BAD_CONFIG
     if args.devices:
         cfg["devices"] = args.devices
     if args.archive_root:
@@ -327,17 +332,17 @@ def main():
     backup_root = (cfg.get("backup_root") or "").strip()
     if not archive_root:
         logger.error("配置里缺少 archive_root（日志归档根目录）")
-        return 5
+        return PIPE_BAD_CONFIG
     if backup_on and not backup_root:
         logger.error("已开启配置备份，但配置里缺少 backup_root（配置备份根目录）")
-        return 5
+        return PIPE_BAD_CONFIG
     if not cfg.get("skip_collect"):
         if not devices:
             logger.error("配置里缺少 devices（设备清单 Excel 路径）")
-            return 5
+            return PIPE_BAD_CONFIG
         if not Path(devices).is_file():
             logger.error("设备清单不存在：%s", devices)
-            return 5
+            return PIPE_BAD_CONFIG
 
     logger.info("配置：devices=%s", devices or "(跳过采集)")
     logger.info("配置：archive_root=%s，并发=%s，超时=%ss",
@@ -366,7 +371,7 @@ def main():
             success = int((stats or {}).get("success", 0) or 0)
             if not ok or success <= 0:
                 logger.error("采集未成功（成功 %d 台），跳过对比", success)
-                return 3
+                return PIPE_COLLECT_FAIL
             logger.info("采集完成：成功 %d 台 → %s", success, out)
 
     # ---- 2) 校验配置备份有没有落盘（采集时顺带做的）----
@@ -389,7 +394,7 @@ def main():
         logger.warning("归档目录里可用日期不足 2 个（找到 %d 个），无法对比", len(pairs))
         for d, p in pairs:
             logger.warning("   %s -> %s", d, p)
-        return 2
+        return PIPE_DATE_DIR_LACK
     (prev_date, prev_dir), (cur_date, cur_dir) = pairs[-2], pairs[-1]
     logger.info("昨日：%s -> %s", prev_date, prev_dir)
     logger.info("今日：%s -> %s", cur_date, cur_dir)
@@ -397,10 +402,10 @@ def main():
     if args.dry_run:
         logger.info("[dry-run] 将执行 crc_compare：%s vs %s", prev_dir, cur_dir)
         logger.info("--dry-run 结束，未执行任何任务")
-        return 0
+        return PIPE_OK
     if not args.force and last_run_date() == cur_date.isoformat():
         logger.info("数据日期 %s 上次已成功对比过，跳过；需要重跑加 --force", cur_date)
-        return 0
+        return PIPE_OK
 
     # ---- 4) 对比 ----
     ok, stats, out, _ = run_tool("crc_compare", {
@@ -409,14 +414,14 @@ def main():
     }, logger)
     if not ok:
         logger.error("CRC 对比未成功")
-        return 4
+        return PIPE_COMPARE_FAIL
     save_marker(cur_date.isoformat(), out)
     logger.info("完成：%s vs %s，结果 %s", cur_date, prev_date, out)
     logger.info("提示：「CRC趋势分析」会自动读取这些历史，攒够 2 天即可看走势")
     if backup_failed:
         logger.warning("注意：本次配置备份有失败，详见上面的日志")
-        return 6
-    return 0
+        return PIPE_BACKUP_FAIL
+    return PIPE_OK
 
 
 if __name__ == "__main__":

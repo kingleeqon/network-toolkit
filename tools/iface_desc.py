@@ -8,15 +8,17 @@ import re
 import time
 
 from core.tool_base import BaseTool, ParamSpec
-from infra.vendor_profiles import get_profile
+from infra.vendor_profiles import match_vendor
 
-# 各厂商「接口描述」命令
+# 各厂商「接口描述」命令（key 为 match_vendor 归一后的标准厂商 key）
+# 取值对齐原 addInterfaceDes 脚本：烽火用 show interface（与 CRC 采集的
+# show interface verbose 不同，属正常——两个工具用途不同）
 _DESC_CMDS = {
     "huawei": "display interface description",
     "h3c": "display interface description",
     "ruijie": "show interfaces description",
     "zte": "show interface description",
-    "fenghuo": "show interface",
+    "fiberhome": "show interface",
 }
 
 # 聚合接口名模式
@@ -49,9 +51,18 @@ class IfaceDescTool(BaseTool):
 
         concurrency = int(params.get("concurrency", 10))
         timeout = int(params.get("timeout", 30))
+        warned_vendors = set()
 
         def worker(dev):
-            cmd = _DESC_CMDS.get((dev.vendor or "").lower(), _DESC_CMDS["huawei"])
+            # 先归一厂商再查命令：清单里写「华为/锐捷/ruijie_os」都能命中
+            key = match_vendor(dev.vendor)
+            cmd = _DESC_CMDS.get(key)
+            if not cmd:
+                raw = dev.vendor or "(空)"
+                if raw not in warned_vendors:
+                    warned_vendors.add(raw)
+                    ctx.log("厂商「%s」未收录接口描述命令，回退华为命令" % raw, level="WARN")
+                cmd = _DESC_CMDS["huawei"]
             with ctx.open_session(dev, timeout=timeout) as session:
                 text = session.send(cmd, timeout=timeout)
             return self._parse(text, dev)

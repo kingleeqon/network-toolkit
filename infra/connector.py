@@ -5,12 +5,15 @@
 工具不得感知底层通道差异；通道由 vendor_profiles.json 的 driver 决定，默认 netmiko。
 第三方库均为可选依赖，缺失时抛 DependencyMissing（由异常映射归类）。
 """
+import logging
 import socket
 import time
 from typing import Optional
 
 from core.errors import DependencyMissing
 from infra.vendor_profiles import get_profile
+
+logger = logging.getLogger(__name__)
 
 
 class Session(object):
@@ -94,8 +97,8 @@ class NetmikoSession(Session):
     def disconnect(self):
         try:
             self.conn.disconnect()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("netmiko 断开异常（忽略）：%s", exc)
 
 
 class ParamikoSession(Session):
@@ -176,8 +179,8 @@ class ParamikoSession(Session):
     def disconnect(self):
         try:
             self.client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("paramiko 断开异常（忽略）：%s", exc)
 
 
 class TelnetSession(Session):
@@ -212,8 +215,8 @@ class TelnetSession(Session):
     def disconnect(self):
         try:
             self.tn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("telnet 断开异常（忽略）：%s", exc)
 
 
 def open_session(device, timeout=30, ctx=None, paging_cmd=None):

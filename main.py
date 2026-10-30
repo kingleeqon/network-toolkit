@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 
+from core.exit_codes import CLI_FAILED, CLI_OK, CLI_PARTIAL
 from core.message import MsgType
 
 BASE_DIR = Path(__file__).parent
@@ -211,13 +212,13 @@ def run_cli(tool_id, params):
     print("统计：%s" % engine.stats)
     if engine.output_dir:
         print("结果目录：%s" % engine.output_dir)
-    # 退出码语义：0=全部成功 2=部分成功（跑完但有失败项）1=失败/异常
-    # 定时任务据此区分「正常完成」「带错完成」「没跑成」
+    # 退出码语义（core/exit_codes.py）：0=全部成功 2=部分成功（跑完但有失败项）
+    # 1=失败/异常。定时任务据此区分「正常完成」「带错完成」「没跑成」
     if engine.state == "SUCCEEDED":
-        return 0
+        return CLI_OK
     if engine.state == "PARTIAL":
-        return 2
-    return 1
+        return CLI_PARTIAL
+    return CLI_FAILED
 
 
 def _parse_cli_params(args):

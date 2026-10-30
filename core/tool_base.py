@@ -47,6 +47,17 @@ class BaseTool(ABC):
     # —— 框架在运行时注入，工具不要直接改 ——
     _load_error: Optional[str] = None
 
+    def __init_subclass__(cls, **kwargs):
+        """子类未声明的可变属性从基类**复制**一份。
+
+        否则漏写 `params = [...]` 的子类会和基类共享同一个 list，
+        任何一处原地改动都会污染所有工具。
+        """
+        super().__init_subclass__(**kwargs)
+        for attr in ("params", "result_columns", "output_tabs"):
+            if attr not in cls.__dict__:
+                setattr(cls, attr, list(getattr(BaseTool, attr)))
+
     @abstractmethod
     def run(self, params, ctx, emit):
         """params: 已校验参数；ctx: TaskContext；emit: emit(type, payload)。

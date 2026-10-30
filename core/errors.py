@@ -4,6 +4,7 @@
 判定顺序：netmiko → paramiko → 标准库 → 回显特征兜底。
 netmiko 底层依赖 paramiko，异常会嵌套，故必须按此顺序逐层判定。
 """
+import re
 from typing import Optional
 from core.message import ItemStatus, STATUS_TEXT
 
@@ -92,3 +93,25 @@ def map_fail_reason(exc):
 def status_text(status):
     """状态枚举 → 结果表中文文案。"""
     return STATUS_TEXT.get(status, "未知错误")
+
+
+# 参数快照/审计里要过滤的敏感字段名（小写子串匹配）
+SENSITIVE_KEY_WORDS = ("password", "passwd", "pwd", "secret", "token", "credential")
+
+
+def is_sensitive_key(key):
+    """参数名是否敏感（password/pwd/token/credential 等）。"""
+    k = str(key or "").lower()
+    return any(w in k for w in SENSITIVE_KEY_WORDS)
+
+
+# 异常文本里的「key=value / key: value」凭证片段（如 password=xxx、token: abc）
+_REDACT_PATTERN = re.compile(
+    r"(?i)\b(password|passwd|pwd|secret|token|credential)\b(\s*[=:：]\s*)(\S+)")
+
+
+def redact_text(text):
+    """掩码文本里的凭证片段，防止异常原文/日志落盘泄露。"""
+    if not text:
+        return text
+    return _REDACT_PATTERN.sub(lambda m: "%s%s***" % (m.group(1), m.group(2)), str(text))
