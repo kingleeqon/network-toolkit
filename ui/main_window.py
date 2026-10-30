@@ -15,6 +15,8 @@ Python 3.8 兼容：类型注解一律使用 typing。
 """
 import json
 import os
+import queue
+import re
 import tkinter as tk
 import ttkbootstrap as ttk
 from pathlib import Path
@@ -23,7 +25,7 @@ from ttkbootstrap.tooltip import ToolTip
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.registry import Registry
-from core.scheduler import SchedulerManager
+from core.scheduler import PIPELINE_KEY, SchedulerManager, exit_code_text
 from core.task_engine import (CANCELLED, CANCELLING, FAILED, IDLE, PARTIAL,
                               RUNNING, SUCCEEDED, TaskEngine)
 from ui.form_builder import FormBuilder
@@ -144,7 +146,12 @@ class MainWindow(object):
         # 应用内定时器：到点自动跑「采集 + 备份 + 对比」（应用开着才有效）
         self._sched_log_targets = []      # 打开着的「定时任务」窗口的输出框
         self.scheduler = SchedulerManager(on_log=self._on_scheduler_log,
-                                          on_status=self._on_scheduler_status)
+                                          on_status=self._on_scheduler_status,
+                                          on_run_done=self._on_scheduler_run_done)
+        # 调度器事件（日志/状态/运行结束）从工作线程入队，主线程统一排空；
+        # 工作线程不能碰 Tk —— root.after 跨线程调用会死锁
+        self._sched_q = queue.Queue()
+        self.root.after(200, self._drain_sched_events)
         self.scheduler.start()
         self.root.after(600, self._on_scheduler_status)
         self.root.after(2000, self._tick_sched_status)
@@ -432,9 +439,13 @@ class MainWindow(object):
             pass
 
     def _on_scheduler_log(self, line):
-        """定时任务子进程的输出：转到界面线程再显示。"""
+        """定时任务子进程的输出：入队，主线程排空后显示。
+
+        工作线程禁止碰 Tk —— root.after 跨线程调用会死锁（实测卡死 worker，
+        后续回调全部到不了）。
+        """
         try:
-            self.root.after(0, self._append_scheduler_log, line)
+            self._sched_q.put(("log", line))
         except Exception:
             pass
 
@@ -451,7 +462,14 @@ class MainWindow(object):
                 pass
 
     def _on_scheduler_status(self, _text=None):
-        """状态栏显示"正在运行的定时任务"（有任务在跑时才显示）。"""
+        """状态变化信号：入队，主线程排空后刷新（同一线程安全约束）。"""
+        try:
+            self._sched_q.put(("status",))
+        except Exception:
+            pass
+
+    def _apply_sched_status(self):
+        """状态栏显示"正在运行的定时任务"（仅主线程调用）。"""
         try:
             text = self.scheduler.running_text()
         except Exception:
@@ -461,6 +479,93 @@ class MainWindow(object):
         except Exception:
             pass
         self._refresh_sched_bar()
+
+    # —— 定时运行结束：回填工具页的运行日志/任务摘要（定时是子进程跑的，
+    #    不走界面 TaskEngine，标签页不回填的话用户看不到这次干了什么）——
+    def _on_scheduler_run_done(self, key, lines, code, output_dir, run_at):
+        try:
+            self._sched_q.put(("done", key, list(lines), code, output_dir, run_at))
+        except Exception:
+            pass
+
+    def _drain_sched_events(self):
+        """主线程统一排空调度器事件（日志/状态/运行结束），Tk 只在主线程碰。"""
+        try:
+            while True:
+                item = self._sched_q.get_nowait()
+                try:
+                    if item[0] == "log":
+                        self._append_scheduler_log(item[1])
+                    elif item[0] == "status":
+                        self._apply_sched_status()
+                    elif item[0] == "done":
+                        self._apply_sched_run(*item[1:])
+                except Exception:
+                    import traceback
+                    traceback.print_exc()   # 回填异常不能静默，否则又查不到
+        except queue.Empty:
+            pass
+        try:
+            self.root.after(200, self._drain_sched_events)
+        except Exception:
+            pass
+
+    def _apply_sched_run(self, key, lines, code, output_dir, run_at):
+        if key == PIPELINE_KEY:
+            return   # 流水线没有工具页，输出在「定时任务总览」窗口里看
+        flag = exit_code_text(code, is_pipeline=False)
+        entries = [("INFO", "───── 定时任务 %s（%s）─────" % (run_at, flag))]
+        for ln in lines:
+            level = "INFO"
+            m = re.search(r"\[(INFO|WARN|WARNING|ERROR|DEBUG)\]", ln[:24])
+            if m:
+                level = m.group(1)
+            entries.append((level, ln))
+        summary = self._build_sched_summary(key, flag, code, output_dir, run_at)
+
+        if self.current_tool is not None and self.current_tool.id == key:
+            for level, text in entries:
+                self.log_view.append(level, text)
+            self._set_summary_text(summary)
+            self._save_outputs()
+        else:
+            # 用户在看别的工具：进缓存，切过去时 _restore_outputs 会带出来
+            cached = self._output_cache.get(key)
+            if cached is None:
+                tool = self.registry.get(key)
+                cached = {"columns": list(getattr(tool, "result_columns", []) or []),
+                          "rows": [], "charts": [], "logs": [], "summary": ""}
+                self._output_cache[key] = cached
+            cached["logs"] = list(cached.get("logs") or []) + entries
+            cached["summary"] = summary
+
+    def _build_sched_summary(self, key, flag, code, output_dir, run_at):
+        title = self.scheduler.title_of(key) if self.scheduler else key
+        lines = ["任务：%s【定时 %s】" % (title, run_at),
+                 "状态：%s" % flag,
+                 "退出码：%s" % code,
+                 ""]
+        if output_dir:
+            p = Path(output_dir) / "summary.json"
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                stats = data.get("stats") or {}
+                for k, v in stats.items():
+                    lines.append("  %s：%s" % (k, v))
+                reasons = data.get("fail_reason_count") or {}
+                lines.append("")
+                if reasons:
+                    lines.append("失败原因分布：")
+                    for reason, count in reasons.items():
+                        lines.append("  %s：%d" % (reason, count))
+                else:
+                    lines.append("失败原因分布：无")
+            except Exception:
+                pass
+            lines.append("")
+            lines.append("结果目录：%s" % output_dir)
+            lines.append("（完整日志见该目录 run.log / error.log）")
+        return "\n".join(lines)
 
     # —— 每个工具的定时设置（时间可见、可改、可立即执行）——
     def _current_params(self):
@@ -502,6 +607,11 @@ class MainWindow(object):
         self.lbl_sched.pack(side="left", padx=(10, 0))
         ttk.Button(bar, text="立即执行", width=9, bootstyle="secondary-outline",
                    command=self._run_sched_now).pack(side="right", padx=(6, 0))
+        # 打开最近一次定时运行的结果目录（run.log/error.log/summary.json 在里面）
+        self.btn_sched_result = ttk.Button(bar, text="查看结果", width=9,
+                                           bootstyle="secondary-outline",
+                                           command=self._open_sched_result)
+        self.btn_sched_result.pack(side="right", padx=(6, 0))
         ttk.Button(bar, text="定时任务总览…", width=12, bootstyle="secondary-outline",
                    command=self.show_auto_task).pack(side="right")
         self._refresh_sched_bar()
@@ -513,8 +623,30 @@ class MainWindow(object):
         try:
             key = self._sched_key
             self.lbl_sched.configure(text=self.scheduler.status_of(key))
+            last = self.scheduler.get(key).get("last") or {}
+            has_dir = bool(last.get("output_dir"))
+            self.btn_sched_result.configure(state="normal" if has_dir else "disabled")
         except Exception:
             pass
+
+    def _open_sched_result(self):
+        """打开最近一次定时运行的结果目录。"""
+        if not self.scheduler or not getattr(self, "_sched_key", None):
+            return
+        last = self.scheduler.get(self._sched_key).get("last") or {}
+        path = last.get("output_dir") or ""
+        if not path:
+            Messagebox.show_info("还没有定时运行的结果目录（先执行一次定时任务）",
+                                 title="提示", parent=self.root)
+            return
+        if not Path(path).exists():
+            Messagebox.show_info("结果目录已不存在：%s" % path,
+                                 title="提示", parent=self.root)
+            return
+        try:
+            os.startfile(str(path))
+        except Exception as exc:
+            Messagebox.show_error(str(exc), title="打开失败", parent=self.root)
 
     def _save_sched(self):
         """保存当前工具的定时设置（时间 + 启用 + 当前参数快照）。"""

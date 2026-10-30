@@ -99,10 +99,12 @@ def exit_code_text(code, is_pipeline=False):
 class SchedulerManager(object):
     """管理所有定时任务。"""
 
-    def __init__(self, store_path=None, on_log=None, on_status=None):
+    def __init__(self, store_path=None, on_log=None, on_status=None, on_run_done=None):
         self.store_path = Path(store_path or STORE_PATH)
         self.on_log = on_log or (lambda line: None)
         self.on_status = on_status or (lambda info: None)
+        # 一次定时运行结束后的完整输出：(key, lines, code, output_dir, run_at)
+        self.on_run_done = on_run_done or (lambda *a, **k: None)
         self.running = {}        # key -> {"started": dt, "title": str}
         self._procs = {}
         self._stop = threading.Event()
@@ -277,9 +279,12 @@ class SchedulerManager(object):
 
         env = dict(os.environ)
         env["PYTHONIOENCODING"] = "utf-8"
+        run_at = datetime.now().strftime("%H:%M")
 
         def worker():
             code = -1
+            lines = []
+            out_dir = ""
             try:
                 proc = subprocess.Popen(
                     cmd, cwd=cwd, env=env,
@@ -288,29 +293,42 @@ class SchedulerManager(object):
                     creationflags=0x08000000)      # CREATE_NO_WINDOW
                 self._procs[key] = proc
                 for line in proc.stdout:
-                    self.on_log(line.rstrip())
+                    s = line.rstrip()
+                    lines.append(s)
+                    self.on_log(s)
+                    # main.py --cli 结束时打印「结果目录：<路径>」，记下来供
+                    # 界面「查看结果」按钮直接打开该次运行的落盘目录
+                    if s.startswith("结果目录："):
+                        out_dir = s.split("结果目录：", 1)[1].strip()
                 code = proc.wait()
             except Exception as exc:
                 self.on_log("定时任务启动失败：%s" % exc)
+                lines.append("定时任务启动失败：%s" % exc)
             finally:
                 self._procs.pop(key, None)
                 # 先落结果再清 running：调用方看到「不在运行」时 last 必已写入
-                self._record_result(key, code)
+                self._record_result(key, code, output_dir=out_dir or None)
                 with self._lock:
                     self.running.pop(key, None)
                 self.on_log("■ 定时任务结束：%s（退出码 %d）" % (title, code))
                 self._emit_status()
+                try:
+                    self.on_run_done(key, lines, code, out_dir or None, run_at)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
 
         threading.Thread(target=worker, daemon=True).start()
         self._emit_status()
         return True, "已开始执行：%s" % title
 
-    def _record_result(self, key, code):
+    def _record_result(self, key, code, output_dir=None):
         data = self._read()
         item = data.get(key) or {}
         item["last"] = {"date": datetime.now().strftime(DAY_KEY),
                         "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "code": int(code)}
+                        "code": int(code),
+                        "output_dir": output_dir or ""}
         data[key] = item
         self._write(data)
 
