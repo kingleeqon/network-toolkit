@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.tool_base import BaseTool, ParamSpec
-from infra.naming import device_stem
+from infra.naming import device_stem, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
                                  get_e1000, get_e1000_sequence, get_paging_cmd)
 
@@ -39,8 +39,7 @@ def archive_one(archive_root, device, text, day=None):
     folder = Path(archive_root) / day
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / ("%s.log" % device_log_name(device))
-    with open(str(path), "w", encoding="utf-8", newline="\n") as f:
-        f.write(text or "")
+    write_text(path, text or "")
     return path
 
 
@@ -171,8 +170,7 @@ class IfaceCollectTool(BaseTool):
             elapsed = int((time.time() - start) * 1000)
 
             raw_file = ctx.raw_dir / ("%s_iface.txt" % dev.ip)
-            with open(str(raw_file), "w", encoding="utf-8") as f:
-                f.write(text or "")
+            write_text(raw_file, text or "")
 
             # 日志首行写设备类型标识：CRC 对比的解析器靠它准确识别厂商
             # （现场脚本也是这么写的），否则只能靠正文关键词猜，容易把
@@ -186,8 +184,8 @@ class IfaceCollectTool(BaseTool):
                 folder = Path(backup_root) / day
                 folder.mkdir(parents=True, exist_ok=True)
                 cfg_path = folder / ("%s.cfg" % device_stem(dev))
-                with open(str(cfg_path), "w", encoding="utf-8", newline="\n") as f:
-                    f.write(cfg_text)
+                # 与 batch_backup 的 .cfg 格式一致：首行厂商标识 + 空行 + 配置
+                write_text(cfg_path, "%s\n\n%s" % (label, cfg_text))
 
             return [dev.ip, dev.hostname, dev.vendor, "", elapsed, len(text or ""), ""]
 

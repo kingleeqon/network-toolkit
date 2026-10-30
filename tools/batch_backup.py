@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.tool_base import BaseTool, ParamSpec
-from infra.naming import device_stem
+from infra.naming import device_stem, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
                                  get_e1000, get_e1000_sequence, get_paging_cmd)
 
@@ -114,16 +114,14 @@ class BatchBackupTool(BaseTool):
             elapsed = int((time.time() - start) * 1000)
 
             raw_file = ctx.raw_dir / ("%s_config.txt" % dev.ip)
-            with open(str(raw_file), "w", encoding="utf-8") as f:
-                f.write(text or "")
+            write_text(raw_file, text or "")
 
             if archive_root:
                 folder = Path(archive_root) / day
                 folder.mkdir(parents=True, exist_ok=True)
                 cfg_path = folder / ("%s.cfg" % device_stem(dev))
                 label = get_device_type_label(dev.vendor, dev.hostname)
-                with open(str(cfg_path), "w", encoding="utf-8", newline="\n") as f:
-                    f.write("%s\n\n%s" % (label, text or ""))
+                write_text(cfg_path, "%s\n\n%s" % (label, text or ""))
 
             note = ""
             if len(text or "") < MIN_CONFIG_LENGTH:

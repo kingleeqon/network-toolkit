@@ -24,6 +24,18 @@ def device_stem(device):
     return safe_filename(getattr(device, "hostname", "") or getattr(device, "ip", ""))
 
 
+def write_text(path, text):
+    """把设备回显写成 Windows 文本文件（CRLF 行尾），行尾与现场脚本产出一致。
+
+    经典记事本只认 CRLF 换行：LF-only 的文件会整个挤成一行显示。
+    netmiko 把行尾归一成 \\n、paramiko 原始是 \\r\\n——先统一成 \\n 再翻译成
+    CRLF，避免混合来源写出 \\r\\r\\n。
+    """
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    with open(str(path), "w", encoding="utf-8", newline="\r\n") as f:
+        f.write(text)
+
+
 def day_dir(root, day=None):
     """返回 <root>/<YYYY-MM-DD>，并确保存在。"""
     from pathlib import Path
