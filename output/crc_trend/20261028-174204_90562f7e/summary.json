@@ -1,0 +1,25 @@
+{
+  "task_id": "90562f7ec2c24137b6298ab05032e591",
+  "tool_id": "crc_trend",
+  "tool_version": "1.0.0",
+  "api_version": "1.0",
+  "operator": "cli",
+  "started_at": "2026-10-28T17:42:04",
+  "finished_at": "2026-10-28T17:42:40",
+  "status": "SUCCEEDED",
+  "stats": {
+    "total": 21,
+    "success": 21,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fail_reason_count": {},
+  "params": {
+    "dimension": "device",
+    "chart_type": "trend",
+    "device": "GX-NN-2-303-I15-POUS-INC-AISHU-S6805-56HF-2",
+    "iface": "Ten-GigabitEthernet1/0/8"
+  },
+  "result_file": "result.xlsx",
+  "app_version": "0.1.0"
+}

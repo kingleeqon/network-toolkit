@@ -1,0 +1,26 @@
+{
+  "task_id": "3b7eb26072084588ad179bb5245d85e6",
+  "tool_id": "demo_scan",
+  "tool_version": "1.0.0",
+  "api_version": "1.0",
+  "operator": "KingLeeQon",
+  "started_at": "2026-10-28T15:40:20",
+  "finished_at": "2026-10-28T15:40:21",
+  "status": "PARTIAL",
+  "stats": {
+    "total": 40,
+    "success": 28,
+    "fail": 12,
+    "skipped": 0
+  },
+  "fail_reason_count": {
+    "FAIL_TIMEOUT": 12
+  },
+  "params": {
+    "count": 40,
+    "concurrency": 8,
+    "fail_rate": 25
+  },
+  "result_file": "result.xlsx",
+  "app_version": "0.1.0"
+}

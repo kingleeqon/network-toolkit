@@ -1,0 +1,57 @@
+# -*- coding: utf-8 -*-
+"""Tool 契约基类（对应 PRD 15.3 / FR-114 / FR-115）。
+
+新工具只需：继承 BaseTool，声明属性与 params，实现 run()。
+Python 3.8 兼容。
+"""
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
+
+TOOL_API_VERSION = "1.0"
+
+
+@dataclass
+class ParamSpec:
+    key: str
+    label: str
+    type: str  # text|password|int|bool|choice|file|dir|device_list
+    required: bool = False
+    default: Any = None
+    options: List[Dict[str, str]] = field(default_factory=list)  # choice 专用
+    ext: str = ""          # file 专用，如 ".xlsx;.csv;.txt"
+    min: Optional[int] = None
+    max: Optional[int] = None
+    placeholder: str = ""
+    help: str = ""
+    # choice 专用：动态选项提供者（渲染表单时调用，返回 [{label,value}]）。
+    # 用于选项依赖运行时数据（如历史日期、可选设备名）的场景；返回空则回退 options。
+    options_provider: Optional[Callable[[], List[Dict[str, str]]]] = None
+
+
+class BaseTool(ABC):
+    id = ""
+    name = ""
+    version = "1.0.0"
+    category = "未分类"
+    description = ""
+    api_version = TOOL_API_VERSION
+
+    params: List[ParamSpec] = []
+    result_columns: List[str] = []
+
+    # 输出标签页声明：result=结果表 chart=图表 log=运行日志 summary=任务摘要
+    # 产图工具可去掉 result，纯结果工具可去掉 chart，主窗口据此按需渲染标签页
+    output_tabs: List[str] = ["result", "log", "summary"]
+
+    # —— 框架在运行时注入，工具不要直接改 ——
+    _load_error: Optional[str] = None
+
+    @abstractmethod
+    def run(self, params, ctx, emit):
+        """params: 已校验参数；ctx: TaskContext；emit: emit(type, payload)。
+
+        禁止操作 UI；禁止自行创建输出目录；
+        每台设备处理前必须检查 ctx.cancel_event.is_set()。
+        """
+        raise NotImplementedError

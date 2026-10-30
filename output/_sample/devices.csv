@@ -1,0 +1,7 @@
+IP,设备名,厂商,凭证
+192.168.1.1,core-1,huawei,default
+192.168.1.2,acc-1,cisco,default
+192.168.1.3,acc-2,h3c,default
+999.1.1.1,bad-ip,huawei,default
+192.168.1.1,dup-ip,huawei,default
+192.168.1.4,no-cred,huawei,

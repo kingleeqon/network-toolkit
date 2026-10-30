@@ -1,0 +1,129 @@
+{
+  "version": 2,
+  "note": "采集命令与特殊设备处理。全部来自现场实测脚本：D:\\test\\object\\InterfaceCollectAndanalysis&comparison\\netmiko_SSH_device_system.py（接口）与 D:\\test\\object\\BackupConifg\\netmiko_SSH.py（配置）。",
+  "_source": {
+    "interface": "D:\\test\\object\\InterfaceCollectAndanalysis&comparison\\netmiko_SSH_device_system.py",
+    "config": "D:\\test\\object\\BackupConifg\\netmiko_SSH.py"
+  },
+  "e1000": {
+    "_note": "华为 E1000：普通 screen-length 0 temporary 不生效，要进 vty 改",
+    "ips": [
+      "10.185.2.3", "10.185.2.4", "172.24.249.34",
+      "172.24.252.58", "10.182.250.15", "10.182.250.16"
+    ],
+    "enter": ["sys", "user-interface vty 0 4", "screen-length 0"],
+    "exit": ["undo screen-length"]
+  },
+  "vendors": {
+    "huawei": {
+      "aliases": ["hw", "华为", "huawei"],
+      "driver": "netmiko",
+      "netmiko_device_type": "huawei",
+      "paging": "---- More ----",
+      "paging_cmd": "screen-length 0 temporary",
+      "encoding": "utf-8",
+      "cmds": {
+        "config": "display current-configuration",
+        "version": "display version",
+        "interface": "display interface"
+      }
+    },
+    "h3c": {
+      "aliases": ["华三", "h3c", "comware", "hp_comware"],
+      "driver": "netmiko",
+      "netmiko_device_type": "hp_comware",
+      "paging": "---- More ----",
+      "encoding": "utf-8",
+      "cmds": {
+        "config": "display current-configuration",
+        "version": "display version",
+        "interface": "display interface"
+      }
+    },
+    "zte": {
+      "aliases": ["中兴", "zte", "zxros", "zte_zxros"],
+      "driver": "netmiko",
+      "netmiko_device_type": "zte_zxros",
+      "paging": "---- More ----",
+      "paging_cmd": "terminal length 0",
+      "encoding": "utf-8",
+      "cmds": {
+        "config": "show running-config",
+        "version": "show version",
+        "interface": "show interface"
+      }
+    },
+    "cisco": {
+      "aliases": ["cisco", "思科", "ios", "cisco_ios"],
+      "driver": "netmiko",
+      "netmiko_device_type": "cisco_ios",
+      "paging": "--More--",
+      "paging_cmd": "terminal length 0",
+      "encoding": "utf-8",
+      "cmds": {
+        "config": "show running-config",
+        "version": "show version",
+        "interface": "show interface"
+      }
+    },
+    "ruijie": {
+      "aliases": ["锐捷", "ruijie", "ruijie_os"],
+      "driver": "netmiko",
+      "netmiko_device_type": "ruijie_os",
+      "paging": "--More--",
+      "paging_cmd": "terminal length 0",
+      "encoding": "utf-8",
+      "cmds": {
+        "config": "show running-config",
+        "version": "show version",
+        "interface": "show interface"
+      }
+    },
+    "fiberhome": {
+      "aliases": ["烽火", "fiberhome", "fh"],
+      "driver": "paramiko",
+      "netmiko_device_type": "",
+      "paging": "",
+      "encoding": "utf-8",
+      "product": "switch",
+      "_product_note": "烽火按设备名判断产品：含 DP / FW1000 的按防火墙（show interface），其余按交换机（show interface verbose）",
+      "products": {
+        "firewall": {
+          "name_marks": ["DP", "FW1000"],
+          "cmds": {"interface": "show interface"},
+          "paging_off": "terminal line 0"
+        },
+        "switch": {
+          "cmds": {"interface": "show interface verbose"},
+          "paging_off": "terminal length 0"
+        }
+      },
+      "_paging_off_by_ip_note": "配置备份时：这批 IP 用 terminal line 0，其余用 terminal length 0",
+      "paging_off_by_ip": {
+        "ips": [
+          "172.20.249.201", "172.20.249.202", "172.22.164.89", "172.22.164.90",
+          "172.20.249.184", "172.20.249.88", "172.24.249.38", "172.24.249.39"
+        ],
+        "cmd": "terminal line 0",
+        "default": "terminal length 0"
+      },
+      "cmds": {
+        "config": "show running-config",
+        "version": "show version"
+      }
+    },
+    "dipu": {
+      "aliases": ["迪普", "dptech", "dp"],
+      "driver": "paramiko",
+      "netmiko_device_type": "",
+      "paging": "",
+      "encoding": "utf-8",
+      "product": "firewall",
+      "cmds": {
+        "config": "show running-config",
+        "interface": "show interface",
+        "paging_off": "terminal line 0"
+      }
+    }
+  }
+}

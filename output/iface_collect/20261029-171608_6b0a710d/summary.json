@@ -1,0 +1,25 @@
+{
+  "task_id": "6b0a710d193b406580bb5f7e5003348e",
+  "tool_id": "iface_collect",
+  "tool_version": "1.2.0",
+  "api_version": "1.0",
+  "operator": "scheduler",
+  "started_at": "2026-10-29T17:16:08",
+  "finished_at": "2026-10-29T17:16:09",
+  "status": "SUCCEEDED",
+  "stats": {
+    "total": 0,
+    "success": 0,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fail_reason_count": {},
+  "params": {
+    "devices": "C:/Users/KingLeeQon/Downloads/告警配置列表.xlsx",
+    "concurrency": 5,
+    "timeout": 40,
+    "archive_dir": "D:/接口采集日志"
+  },
+  "result_file": "result.xlsx",
+  "app_version": "daily"
+}

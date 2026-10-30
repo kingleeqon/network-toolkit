@@ -1,0 +1,27 @@
+{
+  "task_id": "a52387ff618a4851883682af9fd15c61",
+  "tool_id": "demo_scan",
+  "tool_version": "1.0.0",
+  "api_version": "1.0",
+  "operator": "selftest",
+  "started_at": "2026-10-29T17:06:41",
+  "finished_at": "2026-10-29T17:06:42",
+  "status": "PARTIAL",
+  "stats": {
+    "total": 30,
+    "success": 21,
+    "fail": 9,
+    "skipped": 0
+  },
+  "fail_reason_count": {
+    "FAIL_TIMEOUT": 4,
+    "FAIL_PARSE": 5
+  },
+  "params": {
+    "count": 30,
+    "concurrency": 8,
+    "fail_rate": 20
+  },
+  "result_file": "result.xlsx",
+  "app_version": "0.1.0"
+}

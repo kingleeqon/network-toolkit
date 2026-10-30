@@ -1,0 +1,29 @@
+{
+  "task_id": "5790a56857a046f3824186693b6b2f65",
+  "tool_id": "crc_trend",
+  "tool_version": "1.2.0",
+  "api_version": "1.0",
+  "operator": "KingLeeQon",
+  "started_at": "2026-10-29T10:52:31",
+  "finished_at": "2026-10-29T10:52:31",
+  "status": "SUCCEEDED",
+  "stats": {
+    "total": 0,
+    "success": 0,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fail_reason_count": {},
+  "params": {
+    "show_global": false,
+    "show_vendor": false,
+    "show_device": false,
+    "device": "A-SJZX-203-C01-44U-5960X-54DU-58",
+    "max_devices": 5,
+    "show_trend": true,
+    "iface": "cgei-0/1/1/49",
+    "top_n": 20
+  },
+  "result_file": "result.xlsx",
+  "app_version": "0.1.0"
+}

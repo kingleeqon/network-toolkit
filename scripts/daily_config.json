@@ -1,0 +1,11 @@
+{
+  "_说明": "每日流水线配置：采集接口数据 + 备份设备配置 + CRC 对比。界面右上角「定时任务」可直接改。",
+  "devices": "D:/test/device.xlsx",
+  "archive_root": "D:/接口采集日志",
+  "concurrency": 5,
+  "timeout": 40,
+  "skip_collect": false,
+  "backup_enabled": true,
+  "backup_root": "D:/设备配置备份",
+  "daily_time": "08:30"
+}

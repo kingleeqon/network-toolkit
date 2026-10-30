@@ -1,0 +1,23 @@
+{
+  "task_id": "758f9dba65714c5c986c31eff628585e",
+  "tool_id": "crc_compare",
+  "tool_version": "1.0.0",
+  "api_version": "1.0",
+  "operator": "t",
+  "started_at": "2026-10-28T16:51:35",
+  "finished_at": "2026-10-28T16:51:46",
+  "status": "SUCCEEDED",
+  "stats": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fail_reason_count": {},
+  "params": {
+    "yesterday_dir": "D:/test/object/InterfaceCollectAndanalysis&comparison/2026-10-27",
+    "today_dir": "D:/test/object/InterfaceCollectAndanalysis&comparison/2026-10-28"
+  },
+  "result_file": "result.xlsx",
+  "app_version": "test"
+}

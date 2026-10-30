@@ -1,0 +1,24 @@
+{
+  "task_id": "3613ab072e4a4c8d8db36105e74db7ad",
+  "tool_id": "crc_trend",
+  "tool_version": "1.0.0",
+  "api_version": "1.0",
+  "operator": "cli",
+  "started_at": "2026-10-28T17:41:04",
+  "finished_at": "2026-10-28T17:41:40",
+  "status": "SUCCEEDED",
+  "stats": {
+    "total": 11,
+    "success": 11,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fail_reason_count": {},
+  "params": {
+    "dimension": "top20",
+    "chart_type": "bar",
+    "top_n": 10
+  },
+  "result_file": "result.xlsx",
+  "app_version": "0.1.0"
+}

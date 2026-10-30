@@ -1,0 +1,23 @@
+{
+  "task_id": "82c214aaff60448b9e6d8c85ba308cbf",
+  "tool_id": "crc_compare",
+  "tool_version": "1.0.0",
+  "api_version": "1.0",
+  "operator": "KingLeeQon",
+  "started_at": "2026-10-28T17:08:11",
+  "finished_at": "2026-10-28T17:08:27",
+  "status": "SUCCEEDED",
+  "stats": {
+    "total": 174,
+    "success": 174,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fail_reason_count": {},
+  "params": {
+    "yesterday_dir": "D:/test/object/InterfaceCollectAndanalysis&comparison/2026-10-27",
+    "today_dir": "D:/test/object/InterfaceCollectAndanalysis&comparison/2026-10-28"
+  },
+  "result_file": "result.xlsx",
+  "app_version": "0.1.0"
+}

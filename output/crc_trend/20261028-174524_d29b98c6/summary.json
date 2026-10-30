@@ -1,0 +1,27 @@
+{
+  "task_id": "d29b98c63ad4407c8467ca16a2af715a",
+  "tool_id": "crc_trend",
+  "tool_version": "1.0.0",
+  "api_version": "1.0",
+  "operator": "KingLeeQon",
+  "started_at": "2026-10-28T17:45:24",
+  "finished_at": "2026-10-28T17:45:24",
+  "status": "PARTIAL",
+  "stats": {
+    "total": 0,
+    "success": 0,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fail_reason_count": {},
+  "params": {
+    "dimension": "top20",
+    "vendor": "",
+    "device": "",
+    "top_n": 20,
+    "chart_type": "bar",
+    "iface": ""
+  },
+  "result_file": "result.xlsx",
+  "app_version": "0.1.0"
+}

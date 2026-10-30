@@ -1,0 +1,22 @@
+# 目标环境：Python 3.8.10
+# 版本上限为 3.8 兼容性保守值，实测校准后请写死小版本（见 PRD 15.6.8）
+
+paramiko>=3.0,<4.0        # SSH 通道 B
+netmiko>=4.1,<5.0         # SSH 通道 A（netmiko 5.x 要求 Python>=3.9，禁止升级）
+openpyxl>=3.0,<3.2        # xlsx 读写
+xlrd>=2.0,<3.0             # 老式 Excel(.xls) 读取（xlrd 2.x 只支持 xls）
+pandas>=1.5,<2.3          # 数据表处理（离线解析/采集分析类工具；2.3 起要求 Python>=3.9）
+matplotlib>=3.5,<3.9      # 图表生成（CRC 趋势分析走势图/条形图；3.9 起要求 Python>=3.9）
+pywin32>=300,<310         # DPAPI 凭证加密（Windows）
+cryptography>=3.4,<45     # Fernet 降级加密
+pytest>=7.0,<9            # 单测（开发依赖）
+
+# —— 界面层（v0.2 起使用 ttkbootstrap 主题层）——
+# 注意两个版本红线，升级前务必核对：
+#   ttkbootstrap 1.18.0 起要求 Python>=3.9   -> 3.8 只能用 1.17.0
+#   Pillow        11.0.0 起要求 Python>=3.9   -> 3.8 只能用 10.4.x
+# ttkbootstrap 自身声明 pillow>=10,<12，不加下界会让 pip 在 3.8 上装到 Pillow 11 而失败
+ttkbootstrap==1.17.0      # tkinter 主题层（当代 ttk 控件 + 30 套深浅主题）
+Pillow>=10.4,<11          # ttkbootstrap 唯一运行时依赖，3.8 兼容上限
+
+# PyInstaller 已移除：确认不再打包 exe，改用 .venv + run.bat 部署
