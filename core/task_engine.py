@@ -42,7 +42,7 @@ class TaskEngine:
         self.output_dir = None
         self.columns = []
         self.rows = []
-        self.stats = {"total": 0, "success": 0, "fail": 0, "skipped": 0}
+        self.stats = {"total": 0, "success": 0, "partial": 0, "fail": 0, "skipped": 0}
         self.fail_reason_count = {}
         self.output_base = output_base
         self.app_version = app_version
@@ -61,7 +61,7 @@ class TaskEngine:
         self.task_id = uuid.uuid4().hex
         self.columns = list(getattr(tool, "result_columns", []))
         self.rows = []
-        self.stats = {"total": 0, "success": 0, "fail": 0, "skipped": 0}
+        self.stats = {"total": 0, "success": 0, "partial": 0, "fail": 0, "skipped": 0}
         self.fail_reason_count = {}
         self.cancel_event = threading.Event()
         self._closed = threading.Event()
@@ -107,6 +107,11 @@ class TaskEngine:
                 self.stats["total"] += 1
                 if status_value == ItemStatus.OK.value:
                     self.stats["success"] += 1
+                elif status_value == ItemStatus.PARTIAL_OK.value:
+                    # 部分成功：数据拿到了，但有附带问题（如配置备份失败）。
+                    # 不算失败（设备数据本身是好的），但要单独计数，
+                    # 否则整体状态会被误判成「有设备失败」
+                    self.stats["partial"] += 1
                 elif status_value == ItemStatus.SKIPPED.value:
                     self.stats["skipped"] += 1
                 else:
@@ -161,15 +166,16 @@ class TaskEngine:
         total = self.stats["total"]
         success = self.stats["success"]
         fail = self.stats["fail"]
+        partial = self.stats.get("partial", 0)
         cancelled = self.cancel_event.is_set()
 
         if cancelled:
             self.state = CANCELLED
         elif self._errored:
             self.state = FAILED
-        elif total > 0 and fail == 0:
+        elif total > 0 and fail == 0 and partial == 0:
             self.state = SUCCEEDED
-        elif total > 0 and success == 0:
+        elif total > 0 and success == 0 and partial == 0:
             self.state = FAILED
         elif total == 0:
             # 无 result 项（如产图/纯落盘工具）且正常结束 → 已完成

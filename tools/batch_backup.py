@@ -15,6 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from core.message import ItemStatus
 from core.tool_base import BaseTool, ParamSpec
 from infra.naming import device_stem, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
@@ -102,7 +103,10 @@ class BatchBackupTool(BaseTool):
             if not cmd:
                 raise ValueError("未配置该厂商的配置备份命令")
             if not get_cmd(dev.vendor, "config"):
-                ctx.log("%s 没有配置备份命令，已改用接口命令顶替" % dev.ip,
+                # 顶替的是接口命令：存下来的文件其实不是配置，
+                # 日志要说清楚，否则事后看 .cfg 会误以为是配置
+                ctx.log("%s 没有配置备份命令，已改用接口命令顶替"
+                        "（保存的不是配置，仅供排查）" % dev.ip,
                         level="WARN", ip=dev.ip)
             # 烽火按 IP 名单决定关分屏用 terminal line 0 还是 terminal length 0
             paging = get_paging_cmd(dev.vendor, dev.ip, dev.hostname, for_backup=True)
@@ -125,10 +129,13 @@ class BatchBackupTool(BaseTool):
 
             note = ""
             if len(text or "") < MIN_CONFIG_LENGTH:
-                note = "疑似配置不完整（%d 字符）" % len(text or "")
+                # 文件已经落盘，这里只是把「可能不完整」标出来：
+                # 设备超时截断时配置看着像完整的一样，内容却少了尾巴
+                note = "配置回显过短，文件可能不完整（%d 字符）" % len(text or "")
                 ctx.log("%s %s" % (dev.ip, note), level="WARN", ip=dev.ip)
 
-            return [dev.ip, dev.hostname, dev.vendor, "", elapsed, len(text or ""), note]
+            return ([dev.ip, dev.hostname, dev.vendor, "", elapsed, len(text or ""), note],
+                    ItemStatus.PARTIAL_OK if note else ItemStatus.OK)
 
         ctx.log("开始备份：%d 台设备，并发 %d，超时 %ds" % (len(devices), concurrency, timeout))
         ctx.run_parallel(devices, worker, result_columns=self.result_columns, max_workers=concurrency)

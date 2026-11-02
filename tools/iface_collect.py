@@ -18,10 +18,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from core.message import ItemStatus
 from core.tool_base import BaseTool, ParamSpec
 from infra.naming import device_stem, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
                                  get_e1000, get_e1000_sequence, get_paging_cmd)
+
+# 回显长度低于此值视为疑似不完整（空回显/半截回显都算）
+MIN_OUTPUT_LENGTH = 100
 
 
 def device_log_name(device):
@@ -157,12 +161,16 @@ class IfaceCollectTool(BaseTool):
                     text = session.send(cmd, timeout=timeout)
                 # 同一次会话里顺带把配置也取走，省一次登录
                 cfg_text = ""
+                cfg_failed = ""
                 if also_cfg:
                     ccmd = get_cmd(dev.vendor, "config")
                     if ccmd and ccmd != cmd:
                         try:
                             cfg_text = session.send(ccmd, timeout=timeout)
                         except Exception as exc:
+                            # 配置没取到：结果表不能还写「成功」，
+                            # 否则用户以为备份好了，其实 .cfg 根本没生成
+                            cfg_failed = "配置备份失败（%s）" % type(exc).__name__
                             ctx.log("%s 配置采集失败：%s" % (dev.ip, exc),
                                     level="WARN", ip=dev.ip)
                     elif ccmd == cmd:
@@ -171,6 +179,9 @@ class IfaceCollectTool(BaseTool):
 
             raw_file = ctx.raw_dir / ("%s_iface.txt" % dev.ip)
             write_text(raw_file, text or "")
+            if cfg_text:
+                # 配置原文也留一份：归档目录没配时，配置内容不至于凭空消失
+                write_text(ctx.raw_dir / ("%s_config.txt" % dev.ip), cfg_text)
 
             # 日志首行写设备类型标识：CRC 对比的解析器靠它准确识别厂商
             # （现场脚本也是这么写的），否则只能靠正文关键词猜，容易把
@@ -187,7 +198,16 @@ class IfaceCollectTool(BaseTool):
                 # 与 batch_backup 的 .cfg 格式一致：首行厂商标识 + 空行 + 配置
                 write_text(cfg_path, "%s\n\n%s" % (label, cfg_text))
 
-            return [dev.ip, dev.hostname, dev.vendor, "", elapsed, len(text or ""), ""]
+            # 回显过短（空回显/半截回显）要当场告警：否则问题会拖到
+            # CRC 对比阶段才暴露成「一堆设备提取失败」，根因难查
+            note = cfg_failed
+            if len(text or "") < MIN_OUTPUT_LENGTH:
+                tip = "回显可能不完整（%d 字符）" % len(text or "")
+                ctx.log("%s %s" % (dev.ip, tip), level="WARN", ip=dev.ip)
+                note = ("%s；%s" % (note, tip)) if note else tip
+
+            row = [dev.ip, dev.hostname, dev.vendor, "", elapsed, len(text or ""), note]
+            return (row, ItemStatus.PARTIAL_OK) if note else (row, ItemStatus.OK)
 
         ctx.log("开始采集：%d 台设备，并发 %d" % (len(devices), concurrency))
         ctx.run_parallel(devices, worker, result_columns=self.result_columns,
