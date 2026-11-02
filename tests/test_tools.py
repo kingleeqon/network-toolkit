@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """验证：采集类工具的行为（命令选择 / 状态语义 / 归档内容）。
 
-用假会话代替真实设备，不连网。运行：python _t_tools.py
+用假会话代替真实设备，不连网。运行：python tests/test_tools.py
 """
 import sys
 import tempfile
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent.parent   # 项目根目录（本文件在 tests/ 下）
 sys.path.insert(0, str(BASE))
 
 from core.task_context import TaskContext

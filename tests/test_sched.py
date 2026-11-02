@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
-"""验证：多任务定时器（存储/状态/立即执行）+ 工具定时条 + 总览窗口。"""
+"""验证：多任务定时器（存储/状态/立即执行）+ 工具定时条 + 总览窗口。
+
+运行：python tests/test_sched.py（需要带 ttkbootstrap 的 Python）
+"""
 import json, sys, time
 from pathlib import Path
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent.parent   # 项目根目录（本文件在 tests/ 下）
 sys.path.insert(0, str(BASE))
 from core.scheduler import SchedulerManager, PIPELINE_KEY
 

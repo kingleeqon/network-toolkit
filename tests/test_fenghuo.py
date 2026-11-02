@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent.parent   # 项目根目录（本文件在 tests/ 下）
 sys.path.insert(0, str(BASE))
 
 from infra.connector import ParamikoSession

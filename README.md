@@ -132,6 +132,11 @@ network-toolkit/
 │   ├── session_rename.py   # 会话 Hostname 批量修改
 │   ├── session_sync.py     # 会话配置项同步（密码等）
 │   └── zte_check.py        # 中兴交换机合规检查
+├── tests/                 # 验证脚本（不属于程序本体，改完代码跑一遍）
+│   ├── run_all.py         # 一键跑全部：python tests/run_all.py
+│   ├── test_fenghuo.py    # 烽火/迪普产品分流、!end 结束标记、paramiko 读取完整性
+│   ├── test_tools.py      # 采集类工具：命令选择 / 状态语义 / 归档内容（假会话）
+│   └── test_sched.py      # 多任务定时器 + 工具定时条 + 总览窗口（需要 GUI 环境）
 └── output/                # 结果输出：output/{tool_id}/{时间戳}_{task}/...
 ```
 
