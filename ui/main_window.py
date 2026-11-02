@@ -582,6 +582,45 @@ class MainWindow(object):
             pass
         return out
 
+    def _sync_sched_params(self):
+        """把当前表单参数同步进「已启用」的定时条目。
+
+        定时用的是保存那一刻的参数快照：先启用定时、后填归档目录时，
+        到点跑的仍是旧值（不归档）——这是最容易踩的坑。表单一改就同步，
+        切换工具/任务结束时再兜一次底。
+        """
+        if not self.scheduler or self.current_tool is None or self.form is None:
+            return
+        try:
+            key = self.current_tool.id
+            item = self.scheduler.get(key) or {}
+            if not item.get("enabled"):
+                return
+            self.scheduler.set_schedule(key, params=self._current_params())
+        except Exception:
+            pass
+
+    def _on_form_changed(self, *_args):
+        """表单任一参数变化 → 防抖同步定时快照。"""
+        try:
+            job = getattr(self, "_sched_sync_job", None)
+            if job:
+                self.root.after_cancel(job)
+            self._sched_sync_job = self.root.after(600, self._sync_sched_params)
+        except Exception:
+            pass
+
+    def _watch_form_vars(self):
+        """监听当前表单的所有变量，变化时同步定时参数快照。"""
+        self._sched_sync_job = None
+        if not self.form:
+            return
+        for var in list(getattr(self.form, "vars", {}).values()):
+            try:
+                var.trace_add("write", self._on_form_changed)
+            except Exception:
+                pass
+
     def _build_sched_bar(self, tool):
         """在参数区下方加一行定时设置。"""
         self._sched_bar = None
@@ -787,6 +826,8 @@ class MainWindow(object):
 
         # 切换前把当前工具的全部输出（结果表/图表/日志/摘要）存入缓存
         self._save_outputs()
+        # 切换前把当前工具的参数同步进它的定时条目（已启用才同步）
+        self._sync_sched_params()
 
         self.current_tool = tool
         self.tool_title.configure(text="%s  v%s" % (tool.name, tool.version))
@@ -802,6 +843,8 @@ class MainWindow(object):
         self.form = FormBuilder(self.form_frame, tool.params,
                                 avail_width=self._form_avail_width())
         self._restore_form_values(tool)
+        # 监听表单变化：改归档目录/清单等立即同步到定时参数快照
+        self._watch_form_vars()
         self._fill_recent_device_list()
         self._build_sched_bar(tool)
         self._add_font_row()
@@ -1275,6 +1318,8 @@ class MainWindow(object):
                 self.log_view.append("WARN", "存在失败项，可在结果区筛选查看")
             self._select_best_tab()
             self._update_summary()
+            # 参数可能刚改过（如归档目录），同步一次定时快照
+            self._sync_sched_params()
             # 任务结束统一落缓存（含图表/日志/摘要），保证切走再切回内容仍在
             self._save_outputs()
 
