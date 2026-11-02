@@ -22,7 +22,8 @@ from core.message import ItemStatus
 from core.tool_base import BaseTool, ParamSpec
 from infra.naming import device_stem, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
-                                 get_e1000, get_e1000_sequence, get_paging_cmd)
+                                 get_e1000, get_e1000_sequence, get_end_marker,
+                                 get_paging_cmd)
 
 # 回显长度低于此值视为疑似不完整（空回显/半截回显都算）
 MIN_OUTPUT_LENGTH = 100
@@ -163,10 +164,18 @@ class IfaceCollectTool(BaseTool):
                 cfg_text = ""
                 cfg_failed = ""
                 if also_cfg:
-                    ccmd = get_cmd(dev.vendor, "config")
+                    # 厂商列写「烽火」的设备按设备名分产品（DP/FW1000 是迪普防火墙），
+                    # 配置命令必须带上设备名，否则取不到对应产品的那套命令
+                    ccmd = get_cmd(dev.vendor, "config", device_name=dev.hostname)
                     if ccmd and ccmd != cmd:
+                        marker = get_end_marker(dev.vendor, "config",
+                                                 device_name=dev.hostname)
                         try:
-                            cfg_text = session.send(ccmd, timeout=timeout)
+                            cfg_text = session.send(ccmd, timeout=timeout,
+                                                   end_marker=marker)
+                            if marker and marker not in (cfg_text or ""):
+                                ctx.log("%s 配置里没有结束标记 %s，配置可能没采全"
+                                        % (dev.ip, marker), level="WARN", ip=dev.ip)
                         except Exception as exc:
                             # 配置没取到：结果表不能还写「成功」，
                             # 否则用户以为备份好了，其实 .cfg 根本没生成

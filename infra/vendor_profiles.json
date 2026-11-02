@@ -86,11 +86,16 @@
       "paging": "",
       "encoding": "utf-8",
       "product": "switch",
-      "_product_note": "烽火只有交换机，接口采集统一用 show interface verbose、分屏关闭用 terminal length 0",
+      "_product_note": "厂商列写「烽火」的设备里，设备名含 DP 或 FW1000 的是迪普防火墙（接口命令 show interface、分屏 terminal line 0），其余是烽火交换机（show interface verbose、terminal length 0）——按现场脚本 detect_fiberhome_product",
       "products": {
         "switch": {
           "cmds": {"interface": "show interface verbose"},
           "paging_off": "terminal length 0"
+        },
+        "firewall": {
+          "name_marks": ["DP", "FW1000"],
+          "cmds": {"interface": "show interface"},
+          "paging_off": "terminal line 0"
         }
       },
       "_paging_off_by_ip_note": "配置备份时：这批 IP 用 terminal line 0，其余用 terminal length 0",
@@ -102,6 +107,8 @@
         "cmd": "terminal line 0",
         "default": "terminal length 0"
       },
+      "_end_marker_note": "烽火配置输出以 !end 结束：读到 !end 才算完整（现场脚本 netmiko_SSH.py 的 execute_commands_paramiko）",
+      "end_markers": {"config": "!end"},
       "cmds": {
         "config": "show running-config",
         "version": "show version"

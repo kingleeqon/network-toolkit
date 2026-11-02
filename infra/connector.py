@@ -6,6 +6,7 @@
 第三方库均为可选依赖，缺失时抛 DependencyMissing（由异常映射归类）。
 """
 import logging
+import re
 import socket
 import time
 from typing import Optional
@@ -15,11 +16,19 @@ from infra.vendor_profiles import get_profile
 
 logger = logging.getLogger(__name__)
 
+# 提示符判定：行尾是 # / > / ]（与现场脚本 PROMPT_RE 一致）
+_PROMPT_RE = re.compile(r"[\#\>\]]\s*$")
+
 
 class Session(object):
     """统一会话接口。"""
 
-    def send(self, cmd, timeout=30):
+    def send(self, cmd, timeout=30, end_marker=None):
+        """执行一条命令并返回完整回显。
+
+        end_marker：可选的结束标记（如烽火配置的 !end）。给了就以它为准，
+        没有才回退到「提示符 + 空闲」判定。
+        """
         raise NotImplementedError
 
     def send_timing(self, cmd, timeout=10):
@@ -85,7 +94,7 @@ class NetmikoSession(Session):
             except Exception:
                 pass
 
-    def send(self, cmd, timeout=30):
+    def send(self, cmd, timeout=30, end_marker=None):
         return self.conn.send_command(cmd, read_timeout=timeout)
 
     def send_timing(self, cmd, timeout=10):
@@ -102,7 +111,16 @@ class NetmikoSession(Session):
 
 
 class ParamikoSession(Session):
-    """通道 B：paramiko 原生，自行处理分页与提示符。"""
+    """通道 B：paramiko 原生，自行处理分页与提示符。
+
+    读回显的判定方式对齐现场脚本 netmiko_SSH_device_system.py：
+    分页提示 → 回空格继续；命中结束标记（烽火配置的 !end）→ 收工；
+    最后一行是提示符且之后 0.6 秒没有新数据 → 收工。
+    """
+
+    IDLE_WAIT = 0.6        # 见到提示符后再等这么久，确认后面没有数据
+    POLL_INTERVAL = 0.15   # 轮询间隔
+    DEFAULT_PAGING = ("--More--", "--More --", "More")
 
     def __init__(self, device, credential, timeout=30, paging="", paging_off=""):
         try:
@@ -125,12 +143,13 @@ class ParamikoSession(Session):
         self.shell.settimeout(timeout)
         time.sleep(0.3)
         self._drain()
-        # 迪普/烽火等需先发送分页关闭命令
+        # 迪普/烽火等需先发送分页关闭命令；回显必须等到静默，
+        # 否则它的残留会被下一条命令当成回显读走
         if paging_off:
             try:
                 self.shell.send(paging_off + "\n")
                 time.sleep(0.3)
-                self._drain()
+                self._drain_until_idle()
             except Exception:
                 pass
 
@@ -143,9 +162,41 @@ class ParamikoSession(Session):
         except socket.timeout:
             return ""
 
-    def send(self, cmd, timeout=30):
+    def _drain_until_idle(self, idle=0.8, max_wait=6.0):
+        """丢弃通道里已有/将有的数据，直到静默一段时间。
+
+        用于登录后和关分屏命令之后：不清干净的话，残留回显会被下一条
+        命令读走（表现为「配置备份文件里是接口信息」）。
+        """
+        deadline = time.time() + max_wait
+        last_data = time.time()
+        while time.time() < deadline:
+            if self.shell.recv_ready():
+                try:
+                    self.shell.recv(65535)
+                except Exception:
+                    break
+                last_data = time.time()
+            else:
+                if time.time() - last_data >= idle:
+                    break
+                time.sleep(self.POLL_INTERVAL)
+
+    def _is_paging(self, text):
+        """最后一行是不是分页提示（--More-- 之类）。"""
+        tail = text[-300:]
+        if not tail.strip():
+            return False
+        last = tail.rstrip().splitlines()[-1].strip()
+        if last in self.DEFAULT_PAGING:
+            return True
+        return bool(self.paging) and last.endswith(self.paging)
+
+    def send(self, cmd, timeout=30, end_marker=None):
+        # 先清掉上一条命令的残留，否则会被当成本条命令的回显
+        self._drain_until_idle(idle=0.3, max_wait=1.5)
         self.shell.send(cmd + "\n")
-        return self._read(timeout)
+        return self._read(timeout, end_marker=end_marker)
 
     def send_timing(self, cmd, timeout=10):
         """敲一条命令后短暂读一下，不等提示符。"""
@@ -156,24 +207,43 @@ class ParamikoSession(Session):
         except Exception:
             return ""
 
-    def _read(self, timeout=30):
+    def _read(self, timeout=30, end_marker=None):
         buffer = b""
         deadline = time.time() + timeout
+        idle_until = None
         while time.time() < deadline:
             try:
-                chunk = self.shell.recv(65535)
+                if self.shell.recv_ready():
+                    chunk = self.shell.recv(65535)
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    text = _decode(buffer)
+
+                    # 结束标记（烽火配置以 !end 收尾）：命中即算读全
+                    if end_marker and end_marker in text:
+                        break
+
+                    # 分页提示：回一个空格继续读
+                    if self._is_paging(text):
+                        self.shell.send(" ")
+                        time.sleep(0.2)
+                        continue
+
+                    lines = text.rstrip().splitlines()
+                    last = lines[-1] if lines else ""
+                    if idle_until is None and _PROMPT_RE.search(last):
+                        idle_until = time.time() + self.IDLE_WAIT
+
+                # 见到提示符后静默一段时间即收工（末尾可能还有数据在路上）
+                if idle_until and time.time() > idle_until and not self.shell.recv_ready():
+                    break
             except socket.timeout:
+                if not self.shell.recv_ready():
+                    break
+            except Exception:
                 break
-            if not chunk:
-                break
-            buffer += chunk
-            text = _decode(buffer)
-            if self.paging and self.paging in text[-200:]:
-                self.shell.send(" ")
-                time.sleep(0.2)
-                continue
-            if text.rstrip().endswith(("#", ">", "]", "] ")):
-                break
+            time.sleep(self.POLL_INTERVAL)
         return _decode(buffer)
 
     def disconnect(self):

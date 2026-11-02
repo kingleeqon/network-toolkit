@@ -19,7 +19,8 @@ from core.message import ItemStatus
 from core.tool_base import BaseTool, ParamSpec
 from infra.naming import device_stem, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
-                                 get_e1000, get_e1000_sequence, get_paging_cmd)
+                                 get_e1000, get_e1000_sequence, get_end_marker,
+                                 get_paging_cmd)
 
 # 回显长度低于此值视为疑似不完整（估算值，PRD FR-202）
 MIN_CONFIG_LENGTH = 100
@@ -99,22 +100,28 @@ class BatchBackupTool(BaseTool):
             start = time.time()
             # 进度区显示"当前正在处理的设备"（并发时以最近上报的为准）
             ctx.report_current("%s %s" % (dev.ip, dev.hostname or ""))
-            cmd = get_cmd(dev.vendor, "config") or get_cmd(dev.vendor, "interface")
+            # 配置命令必须带设备名：厂商列写「烽火」但设备名含 DP/FW1000 的
+            # 是迪普防火墙，命令和分屏都不一样
+            cfg_cmd = get_cmd(dev.vendor, "config", device_name=dev.hostname)
+            cmd = cfg_cmd or get_cmd(dev.vendor, "interface", device_name=dev.hostname)
             if not cmd:
                 raise ValueError("未配置该厂商的配置备份命令")
-            if not get_cmd(dev.vendor, "config"):
+            if not cfg_cmd:
                 # 顶替的是接口命令：存下来的文件其实不是配置，
                 # 日志要说清楚，否则事后看 .cfg 会误以为是配置
                 ctx.log("%s 没有配置备份命令，已改用接口命令顶替"
                         "（保存的不是配置，仅供排查）" % dev.ip,
                         level="WARN", ip=dev.ip)
+            # 结束标记：烽火配置以 !end 收尾，读到它才算采全
+            marker = get_end_marker(dev.vendor, "config" if cfg_cmd else "interface",
+                                    device_name=dev.hostname)
             # 烽火按 IP 名单决定关分屏用 terminal line 0 还是 terminal length 0
             paging = get_paging_cmd(dev.vendor, dev.ip, dev.hostname, for_backup=True)
             with ctx.open_session(dev, timeout=timeout, paging_cmd=paging) as session:
                 if get_e1000(dev.ip):
                     text = _run_e1000(session, cmd, timeout)
                 else:
-                    text = session.send(cmd, timeout=timeout)
+                    text = session.send(cmd, timeout=timeout, end_marker=marker)
             elapsed = int((time.time() - start) * 1000)
 
             raw_file = ctx.raw_dir / ("%s_config.txt" % dev.ip)
@@ -128,11 +135,17 @@ class BatchBackupTool(BaseTool):
                 write_text(cfg_path, "%s\n\n%s" % (label, text or ""))
 
             note = ""
+            if marker and marker not in (text or ""):
+                # 没读到结束标记 = 很可能没采全（设备中途卡住/超时）
+                tip = "未收到结束标记 %s，可能没采全" % marker
+                ctx.log("%s %s" % (dev.ip, tip), level="WARN", ip=dev.ip)
+                note = tip
             if len(text or "") < MIN_CONFIG_LENGTH:
                 # 文件已经落盘，这里只是把「可能不完整」标出来：
                 # 设备超时截断时配置看着像完整的一样，内容却少了尾巴
-                note = "配置回显过短，文件可能不完整（%d 字符）" % len(text or "")
-                ctx.log("%s %s" % (dev.ip, note), level="WARN", ip=dev.ip)
+                tip = "配置回显过短，文件可能不完整（%d 字符）" % len(text or "")
+                ctx.log("%s %s" % (dev.ip, tip), level="WARN", ip=dev.ip)
+                note = ("%s；%s" % (note, tip)) if note else tip
 
             return ([dev.ip, dev.hostname, dev.vendor, "", elapsed, len(text or ""), note],
                     ItemStatus.PARTIAL_OK if note else ItemStatus.OK)

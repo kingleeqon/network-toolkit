@@ -105,8 +105,9 @@ def get_cmd(vendor, cmd_key, device_name=None):
 def get_product(vendor, device_name=None):
     """返回厂商产品类型：switch | firewall | None。
 
-    只有配置里声明了 products 的厂商才按设备名（name_marks）分产品；
-    烽火只有交换机，products 里只剩 switch 分支，恒返回 switch。
+    声明了 products 的厂商按设备名（name_marks）分产品：
+    厂商列写「烽火」但设备名含 DP / FW1000 的是**迪普防火墙**（firewall），
+    其余是烽火交换机（switch）——与现场脚本 detect_fiberhome_product 一致。
     其余厂商直接用 product 字段（如迪普恒为 firewall）。
     """
     cfg, _ = get_profile(vendor)
@@ -132,6 +133,13 @@ def get_paging_cmd(vendor, device_ip=None, device_name=None, for_backup=False):
     cfg, _ = get_profile(vendor)
     by_ip = cfg.get("paging_off_by_ip") or {}
     if for_backup and by_ip:
+        # 迪普防火墙（厂商列写烽火、设备名含 DP/FW1000）按产品用 terminal line 0，
+        # 其余交换机按现场脚本的 IP 名单来
+        product = get_product(vendor, device_name)
+        if product == "firewall":
+            sub = cfg.get("products", {}).get("firewall", {}) or {}
+            if sub.get("paging_off"):
+                return sub["paging_off"]
         ips = by_ip.get("ips") or []
         if device_ip in ips:
             return by_ip.get("cmd", "")
@@ -148,23 +156,38 @@ def get_paging_cmd(vendor, device_ip=None, device_name=None, for_backup=False):
 def get_device_type_label(vendor, device_name=None):
     """写进日志首行的设备类型标识（解析器靠它准确识别厂商）。
 
-    迪普与烽火是两个独立厂商，必须按厂商本身判定，不能按产品类型判断：
-    烽火只有交换机，此前若按 get_product 判断，名字含 DP 的烽火交换机
-    会被误判成 firewall，进而被误标成 DPtech，导致 CRC 对比阶段把烽火设备
-    按迪普规则解析、厂商错判。
+    厂商列写「烽火」的设备里，设备名含 DP / FW1000 的是**迪普防火墙**
+    （现场脚本 detect_fiberhome_product），要标 DPtech 按迪普规则解析；
+    其余是烽火交换机，标 FiberHome。厂商列本身写「迪普」的一律 DPtech。
     """
     key = match_vendor(vendor)
     if key in ("dipu", "dptech", "dp"):
         # 迪普统一标 DPtech
         return "DPtech"
     if key == "fiberhome":
-        # 烽火统一标 FiberHome（只有交换机）
-        return "FiberHome"
+        # 烽火桶内按设备名分产品：DP/FW1000 → 迪普防火墙
+        return "DPtech" if get_product(vendor, device_name) == "firewall" else "FiberHome"
 
     # 其余厂商：优先用配置里的 netmiko_device_type，缺失则回退到标准 key
     cfg, _ = get_profile(vendor)
     label = cfg.get("netmiko_device_type") or ""
     return label or key
+
+
+def get_end_marker(vendor, cmd_key, device_name=None):
+    """该命令的结束标记（如烽火配置的 !end）；没有则返回空串。
+
+    烽火的 show running-config 以 !end 收尾：按提示符判定会读不全，
+    必须读到 !end 才算完整（现场脚本 netmiko_SSH.py 的判定条件）。
+    """
+    cfg, _ = get_profile(vendor)
+    product = get_product(vendor, device_name)
+    if product:
+        sub = cfg.get("products", {}).get(product, {}) or {}
+        marker = (sub.get("end_markers") or {}).get(cmd_key)
+        if marker:
+            return marker
+    return (cfg.get("end_markers") or {}).get(cmd_key, "")
 
 
 def get_e1000(ip):
