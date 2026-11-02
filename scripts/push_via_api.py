@@ -171,7 +171,10 @@ def main():
     api("/repos/%s/git/refs/heads/%s" % (REPO, BRANCH), "PATCH",
         {"sha": parent, "force": False}, token)
     print("\n推送完成：%s → %s" % (BRANCH, parent[:8]))
-    print("接着更新本地远端引用：git fetch origin && git reset --soft origin/%s" % BRANCH)
+
+    # 本机到 github.com 不通，git fetch 会失败，直接更新本地远端引用
+    git("update-ref", "refs/remotes/origin/%s" % BRANCH, parent)
+    print("本地远端引用已对齐（origin/%s = %s）" % (BRANCH, parent[:8]))
     return 0
 
 
