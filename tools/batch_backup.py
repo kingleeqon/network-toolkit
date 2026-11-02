@@ -17,7 +17,7 @@ from pathlib import Path
 
 from core.message import ItemStatus
 from core.tool_base import BaseTool, ParamSpec
-from infra.naming import device_stem, write_text
+from infra.naming import device_stem, record_device_failure, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
                                  get_e1000, get_e1000_sequence, get_end_marker,
                                  get_paging_cmd)
@@ -96,7 +96,7 @@ class BatchBackupTool(BaseTool):
                         level="WARN")
             ctx.log("配置归档到：%s" % (Path(archive_root) / day))
 
-        def worker(dev):
+        def _backup(dev):
             start = time.time()
             # 进度区显示"当前正在处理的设备"（并发时以最近上报的为准）
             ctx.report_current("%s %s" % (dev.ip, dev.hostname or ""))
@@ -149,6 +149,16 @@ class BatchBackupTool(BaseTool):
 
             return ([dev.ip, dev.hostname, dev.vendor, "", elapsed, len(text or ""), note],
                     ItemStatus.PARTIAL_OK if note else ItemStatus.OK)
+
+        def worker(dev):
+            # 登录不上/超时等失败：记一份失败清单，失败设备本身不生成 .cfg
+            # （半截配置混进归档目录会被当成有效备份）
+            try:
+                return _backup(dev)
+            except Exception as exc:
+                folder = Path(archive_root) / day if archive_root else ctx.output_dir
+                record_device_failure(folder, dev, exc)
+                raise
 
         ctx.log("开始备份：%d 台设备，并发 %d，超时 %ds" % (len(devices), concurrency, timeout))
         ctx.run_parallel(devices, worker, result_columns=self.result_columns, max_workers=concurrency)

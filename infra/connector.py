@@ -119,8 +119,11 @@ class ParamikoSession(Session):
     """
 
     IDLE_WAIT = 0.6        # 见到提示符后再等这么久，确认后面没有数据
+    PAGER_IDLE_WAIT = 1.0  # 分页场景：静默这么久就回空格翻页
     POLL_INTERVAL = 0.15   # 轮询间隔
-    DEFAULT_PAGING = ("--More--", "--More --", "More")
+    MAX_PAGES = 200        # 最多翻多少页（防死循环）
+    DEFAULT_PAGING = ("--More--", "--More --", "---- More ----", "More", "more",
+                      "press q to stop", "按回车继续", "回车继续")
 
     def __init__(self, device, credential, timeout=30, paging="", paging_off=""):
         try:
@@ -208,36 +211,61 @@ class ParamikoSession(Session):
             return ""
 
     def _read(self, timeout=30, end_marker=None):
+        """读一条命令的输出。
+
+        **有 end_marker**（烽火交换机的配置以 !end 收尾）：只有拿到标记才算
+        读完；中途分页就回空格翻页；长时间没数据也回空格试翻页——设备的分页
+        提示形态不固定，认不出时靠翻页兜底，否则只能拿到第一屏（配置残缺）。
+
+        **没有 end_marker**：末行是提示符且静默 IDLE_WAIT 即收工。
+        """
         buffer = b""
         deadline = time.time() + timeout
         idle_until = None
+        prompt_seen = False
+        pages = 0
         while time.time() < deadline:
             try:
-                if self.shell.recv_ready():
-                    chunk = self.shell.recv(65535)
-                    if not chunk:
-                        break
-                    buffer += chunk
-                    text = _decode(buffer)
-
-                    # 结束标记（烽火配置以 !end 收尾）：命中即算读全
-                    if end_marker and end_marker in text:
-                        break
-
-                    # 分页提示：回一个空格继续读
-                    if self._is_paging(text):
+                if not self.shell.recv_ready():
+                    # 暂时没数据
+                    if idle_until is None or time.time() < idle_until:
+                        time.sleep(self.POLL_INTERVAL)
+                        continue
+                    # 静默已超时
+                    if end_marker and pages < self.MAX_PAGES:
+                        # 还没拿到结束标记：回空格翻页继续读
                         self.shell.send(" ")
+                        pages += 1
+                        idle_until = None
                         time.sleep(0.2)
                         continue
-
-                    lines = text.rstrip().splitlines()
-                    last = lines[-1] if lines else ""
-                    if idle_until is None and _PROMPT_RE.search(last):
-                        idle_until = time.time() + self.IDLE_WAIT
-
-                # 见到提示符后静默一段时间即收工（末尾可能还有数据在路上）
-                if idle_until and time.time() > idle_until and not self.shell.recv_ready():
                     break
+
+                chunk = self.shell.recv(65535)
+                if not chunk:
+                    break
+                buffer += chunk
+                text = _decode(buffer)
+
+                # 结束标记（烽火配置以 !end 收尾）：命中即算读全
+                if end_marker and end_marker in text:
+                    break
+
+                # 分页提示：回一个空格继续读
+                if self._is_paging(text):
+                    self.shell.send(" ")
+                    pages += 1
+                    idle_until = None
+                    time.sleep(0.2)
+                    continue
+
+                lines = text.rstrip().splitlines()
+                last = lines[-1] if lines else ""
+                if _PROMPT_RE.search(last):
+                    prompt_seen = True
+                if end_marker or prompt_seen:
+                    idle_until = time.time() + (self.IDLE_WAIT if prompt_seen
+                                                else self.PAGER_IDLE_WAIT)
             except socket.timeout:
                 if not self.shell.recv_ready():
                     break

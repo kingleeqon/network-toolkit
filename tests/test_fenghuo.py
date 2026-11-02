@@ -45,12 +45,21 @@ for dev_name, product, iface, label, paging in [
 print("=== ② 配置命令与结束标记 ===")
 check("config cmd", get_cmd("fiberhome", "config", device_name="DP-FIREWALL-01"),
       "show running-config")
-check("end marker", get_end_marker("fiberhome", "config", device_name="DP-SW"),
+check("end marker", get_end_marker("fiberhome", "config", device_name="FH-SW-02"),
       "!end")
 check("dipu interface", get_cmd("dipu", "interface"), "show interface")
 check("dipu label", get_device_type_label("dipu"), "DPtech")
 
-print("=== ②b 配置备份时的分屏命令 ===")
+print("=== ②b 结束标记按产品 ===")
+# 只有真烽火交换机以 !end 收尾；厂商列写烽火但实为迪普防火墙的设备没有这个标记
+check("烽火交换机配置结束标记",
+      get_end_marker("fiberhome", "config", device_name="FH-SW-01"), "!end")
+check("迪普防火墙配置结束标记",
+      get_end_marker("fiberhome", "config", device_name="DP-FW-01"), "")
+check("厂商列=迪普 的结束标记",
+      get_end_marker("dipu", "config"), "")
+
+print("=== ②c 配置备份时的分屏命令 ===")
 # 迪普防火墙：按产品用 terminal line 0
 check("DP 设备备份分屏",
       get_paging_cmd("fiberhome", "172.20.249.88", "DP-FW-01", for_backup=True),
@@ -90,6 +99,27 @@ def mk(chunks):
     return s
 
 
+class PagingShell(object):
+    """分页设备：只有收到空格才肯吐下一屏（分页提示形态未知时靠翻页兜底）。"""
+
+    def __init__(self, screens):
+        self.screens = list(screens)
+        self.pending = []
+        self.sent = []
+
+    def recv_ready(self):
+        return bool(self.pending)
+
+    def recv(self, n):
+        time.sleep(0.05)
+        return self.pending.pop(0)
+
+    def send(self, s):
+        self.sent.append(s)
+        if s == " " and self.screens:
+            self.pending.append(self.screens.pop(0))
+
+
 print("=== ③ paramiko 读取完整性 ===")
 # 分包到达，最后 !end
 s = mk([b"!Software Version V800\nsysname DEV1\n",
@@ -113,6 +143,16 @@ check("提示符后快速结束(%.1fs)" % (time.time() - t0), time.time() - t0 <
 s = mk(["上一条命令的残留内容\n".encode("utf-8")])
 s.send("show running-config")
 check("send 前清残留后发出命令", s.shell.sent[0], "show running-config\n")
+
+# 分页提示形态未知：靠"静默后回空格翻页"兜底，必须读到 !end 才算完
+s = ParamikoSession.__new__(ParamikoSession)
+s.paging = ""
+s.shell = PagingShell(["config part1\n--UnrecognizedPager--\n".encode("utf-8"),
+                       "config part2\n!end\n".encode("utf-8")])
+s.shell.pending.append(s.shell.screens.pop(0))
+out = s._read(timeout=15, end_marker="!end")
+check("未知分页符也能翻页读到 !end", ("part1" in out and "part2" in out and "!end" in out), True)
+check("翻页时回了空格", " " in s.shell.sent, True)
 
 print()
 if fails:

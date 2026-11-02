@@ -5,9 +5,13 @@
 人工整理的日志目录也是这个结构，两边要完全一致，所以规则收在一处。
 """
 from datetime import datetime
+import threading
 
 # Windows 文件名非法字符（设备名里可能出现 SW/1F/CORE 这种）
 BAD_CHARS = ('/', '\\', ':', '*', '?', '"', '<', '>', '|')
+
+# 失败清单是多个 worker 并发追加的，要串行写
+_ERROR_LOG_LOCK = threading.Lock()
 
 
 def safe_filename(name, fallback="unknown"):
@@ -34,6 +38,33 @@ def write_text(path, text):
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     with open(str(path), "w", encoding="utf-8", newline="\r\n") as f:
         f.write(text)
+
+
+def record_device_failure(folder, device, reason):
+    """把一台设备的失败追加到 <folder>/error_log.txt，返回文件路径。
+
+    采集失败（登录不上、超时等）的设备**不会**生成 .log/.cfg——半截文件混进
+    归档目录会被 CRC 对比当成有效数据。这里单独留一份失败清单（与现场脚本
+    netmiko_SSH.py 的 error_log.txt 同款习惯），网管在归档目录就能看到
+    哪几台没采到。多个 worker 并发写，用锁串行化。
+    """
+    if not folder:
+        return None
+    try:
+        from pathlib import Path
+        path = Path(folder) / "error_log.txt"
+        # 失败设备可能没走到建目录那步，目录还不存在
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ip = getattr(device, "ip", "") or ""
+        name = getattr(device, "hostname", "") or ip
+        line = "%s - Failed to process %s (%s): %s" % (stamp, name, ip, reason)
+        with _ERROR_LOG_LOCK:
+            with open(str(path), "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        return path
+    except Exception:
+        return None
 
 
 def day_dir(root, day=None):

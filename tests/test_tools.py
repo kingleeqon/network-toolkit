@@ -40,6 +40,8 @@ class FakeSession(object):
 
     def send(self, cmd, timeout=30, end_marker=None):
         self.log.append(cmd)
+        if self.mode == "connect_fail":
+            raise ConnectionRefusedError("模拟登录不上")
         is_config = ("running-config" in cmd or "current-configuration" in cmd)
         if self.mode == "cfg_fail" and is_config:
             raise RuntimeError("模拟配置命令失败")
@@ -124,6 +126,26 @@ check("配置命令是 running-config", ctx.cmds[0], "show running-config")
 res, logs, ctx, out = run(bb.BatchBackupTool(), "short", FH_SW, {"archive_dir": ""})
 check("配置过短 → 部分成功", res[0]["status"], "PARTIAL_OK")
 check("备注写明可能不完整", "可能不完整" in res[0]["row"][6], True)
+
+print("=== ⑤ 登录失败的设备：留失败清单，不留半截文件 ===")
+archivedir = tempfile.mkdtemp()
+res, logs, ctx, out = run(ic.IfaceCollectTool(), "connect_fail", FH_SW,
+                          {"archive_dir": archivedir})
+check("失败设备状态是失败", res[0]["status"] not in ("OK", "PARTIAL_OK"), True)
+err_logs = list(Path(archivedir).rglob("error_log.txt"))
+check("生成了 error_log.txt", len(err_logs), 1)
+check("清单里有设备名和原因",
+      ("FH-SW-01" in err_logs[0].read_text(encoding="utf-8")), True)
+check("没有生成半截 .log",
+      len(list(Path(archivedir).rglob("*.log"))), 0)
+
+archivedir2 = tempfile.mkdtemp()
+res, logs, ctx, out = run(bb.BatchBackupTool(), "connect_fail", FH_SW,
+                           {"archive_dir": archivedir2})
+err_logs2 = list(Path(archivedir2).rglob("error_log.txt"))
+check("配置备份也生成 error_log.txt", len(err_logs2), 1)
+check("配置备份没有生成半截 .cfg",
+      len(list(Path(archivedir2).rglob("*.cfg"))), 0)
 
 print()
 if fails:

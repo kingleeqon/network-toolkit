@@ -90,7 +90,9 @@
       "products": {
         "switch": {
           "cmds": {"interface": "show interface verbose"},
-          "paging_off": "terminal length 0"
+          "paging_off": "terminal length 0",
+          "_end_marker_note": "烽火交换机的 show running-config 以 !end 收尾：读到 !end 才算完整（现场脚本 netmiko_SSH.py 的 execute_commands_paramiko）",
+          "end_markers": {"config": "!end"}
         },
         "firewall": {
           "name_marks": ["DP", "FW1000"],
@@ -107,8 +109,7 @@
         "cmd": "terminal line 0",
         "default": "terminal length 0"
       },
-      "_end_marker_note": "烽火配置输出以 !end 结束：读到 !end 才算完整（现场脚本 netmiko_SSH.py 的 execute_commands_paramiko）",
-      "end_markers": {"config": "!end"},
+      "_end_marker_note": "结束标记按产品配置：只有烽火交换机（switch）以 !end 收尾；厂商列写烽火但设备名含 DP/FW1000 的迪普防火墙没有这个标记",
       "cmds": {
         "config": "show running-config",
         "version": "show version"
