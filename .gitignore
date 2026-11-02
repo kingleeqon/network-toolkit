@@ -8,3 +8,5 @@ output/
 logs/
 scripts/schedules.json
 .history_cache.pkl
+*.xlsx
+*.xls
