@@ -22,6 +22,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 FILTERS = ["全部", "成功", "失败"]
 
+# 表格字号（与主窗口的显示字号同步，两侧常量保持一致）
+MIN_FONT_SIZE = 8
+MAX_FONT_SIZE = 22
+DEFAULT_FONT_SIZE = 12
+
 # 单帧渲染上限：超过后转批量刷新，避免逐行 insert 拖慢主线程
 BATCH_LIMIT = 2000
 
@@ -39,7 +44,7 @@ class ResultView(object):
 
         self.tree = ttk.Treeview(self.frame, columns=self.columns, show="headings",
                                  height=12, bootstyle="primary", style="Result.Treeview")
-        self._font_size = 10
+        self._font_size = DEFAULT_FONT_SIZE
         self._fit_w = 0
         self.tree.bind("<Configure>", self._on_tree_configure)
         self._apply_columns()
@@ -71,10 +76,30 @@ class ResultView(object):
         box.bind("<<ComboboxSelected>>", lambda e: self.refresh())
         self.count_label = ttk.Label(top, text="", bootstyle="secondary")
         self.count_label.pack(side="left", padx=10)
+        # 字号就放在表格工具栏上（原来只在参数区底部有个 Spinbox，不好找）
+        ttk.Button(top, text="A-", width=3, bootstyle="secondary-outline",
+                   command=lambda: self._bump_font(-1)).pack(side="right", padx=(4, 0))
+        ttk.Button(top, text="A+", width=3, bootstyle="secondary-outline",
+                   command=lambda: self._bump_font(1)).pack(side="right")
+        ttk.Button(top, text="默认", bootstyle="secondary-outline",
+                   command=lambda: self._set_font_and_notify(DEFAULT_FONT_SIZE)
+                   ).pack(side="right", padx=(0, 6))
         ttk.Button(top, text="导出 Excel", bootstyle="secondary-outline",
                    command=lambda: self.export(".xlsx")).pack(side="right", padx=4)
         ttk.Button(top, text="导出 CSV", bootstyle="secondary-outline",
                    command=lambda: self.export(".csv")).pack(side="right")
+
+    def _bump_font(self, step):
+        self._set_font_and_notify(max(MIN_FONT_SIZE,
+                                      min(MAX_FONT_SIZE, self._font_size + step)))
+
+    def _set_font_and_notify(self, size):
+        self.set_font_size(size)
+        if getattr(self, "on_font_size", None):
+            try:
+                self.on_font_size(size)
+            except Exception:
+                pass
 
     def _apply_columns(self):
         for col in self.columns:

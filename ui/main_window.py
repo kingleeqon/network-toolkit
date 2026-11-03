@@ -67,7 +67,7 @@ STATE_STYLE = {
 DEPS = ("paramiko", "netmiko", "openpyxl", "win32crypt", "cryptography")
 PREF_PATH = os.path.join(os.path.expanduser("~"), ".network_toolkit_ui.json")
 
-BASE_FONT_SIZE = 10          # 图表/表格的基准字号（字号设置以此为 1.0 比例）
+BASE_FONT_SIZE = 12          # 图表/表格的基准字号（字号设置以此为 1.0 比例）；中文 12 号起看得清
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 22
 OUTPUT_MIN_H = 340           # 自动贴合时输出区（图表/结果表）保底高度
@@ -83,6 +83,10 @@ def load_ui_pref():
         pref["theme"] = data.get("theme", DEFAULT_THEME)
         try:
             size = int(data.get("font_size", BASE_FONT_SIZE))
+            # 老版本默认是 10，用户没动过的话这次跟着新默认 12 走
+            # （手动调成 10 的场景极少，且表格工具栏一键可调回来）
+            if size == 10 and BASE_FONT_SIZE != 10:
+                size = BASE_FONT_SIZE
             pref["font_size"] = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, size))
         except (TypeError, ValueError):
             pass
@@ -356,6 +360,11 @@ class MainWindow(object):
         }
         # 图表放大时把参数区让出来（否则放大后的图被裁掉一半，看着像"没放大"）
         self.chart_view.on_expand = self._on_chart_expand
+        # 结果表工具栏的 A+/A-/默认 与参数区「显示字号」保持同步
+        self.result_view.on_font_size = self._on_font_size_from_table
+        # Ctrl+滚轮直接缩放结果表 / 运行日志
+        self.result_view.tree.bind("<Control-MouseWheel>", self._on_font_wheel)
+        self.log_view.text.bind("<Control-MouseWheel>", self._on_font_wheel)
         # key -> 当前 Notebook 内的 tab widget 名（用于 select）
         self._tab_ids = {}
         self._current_tab_keys = []
@@ -1136,6 +1145,19 @@ class MainWindow(object):
         self.ui_font_size = size
         self._apply_font_size()
         save_ui_pref({"font_size": size})
+
+    def _on_font_size_from_table(self, size):
+        """结果表工具栏的 A+/A-/默认 按钮 → 同步「显示字号」并应用。"""
+        self.font_size_var.set(size)
+        self._on_font_size_change()
+
+    def _on_font_wheel(self, event):
+        """Ctrl+滚轮缩放字号（结果表 / 运行日志）。"""
+        step = 1 if getattr(event, "delta", 0) > 0 else -1
+        self.font_size_var.set(max(MIN_FONT_SIZE,
+                                   min(MAX_FONT_SIZE, self.ui_font_size + step)))
+        self._on_font_size_change()
+        return "break"
 
     def _apply_font_size(self):
         """把当前字号应用到所有输出视图。"""
