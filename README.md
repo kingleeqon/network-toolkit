@@ -91,26 +91,6 @@ Tk 随后会用真实 DPI 自算 `tk scaling`（dpi/72），文字与控件均�
 不会发糊。切换显示器拖窗时 Tk 8.6.9 无法自动重算 —— 请关闭后重新打开窗口。
 "关于"窗口里会显示当前实测 DPI 与 scaling，便于排查。
 
-### 提交到 GitHub
-
-**正常情况（你自己的终端能连 GitHub）**——就用它：
-
-```bash
-git push origin main
-```
-
-**受限环境（代理/沙箱里 github.com 不通）**——只有 `api.github.com` 通时用
-API 推送脚本（逐个重建提交，历史不合并）：
-
-```bat
-rem token 需要 repo 权限，只放环境变量，别写进文件
-setx GITHUB_TOKEN ghp_xxx
-python scripts\push_via_api.py --dry-run   :: 先看要推哪些提交
-python scripts\push_via_api.py             :: 真推
-```
-
-能直连时照常用 `git push origin main`。
-
 ## 3. 目录结构
 
 ```
