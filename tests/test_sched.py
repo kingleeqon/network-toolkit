@@ -70,6 +70,40 @@ print("   日志片段:", logs[:2])
 print("\n=== ⑤ 一天只跑一次 ===")
 print("   ran_today(demo_scan):", mgr.ran_today("demo_scan"))
 
+print("\n=== ⑤b 触发判定：刚配的任务不能因今天已过点就补跑 ===")
+# 用户反馈：15 点配一个 2 点的任务，刚配完就跑了
+from datetime import datetime as _dt, timedelta as _td
+STORE2 = Path(r"C:/temp/sched_test/schedules_trigger.json")
+if STORE2.exists(): STORE2.unlink()
+fired = []
+mgr2 = SchedulerManager(store_path=STORE2)
+mgr2.run_now = lambda key: fired.append(key) or (True, "ok")   # 只看触发判定
+
+_past = _dt.now() - _td(hours=3)
+_past_at = "%d:%02d" % (_past.hour, _past.minute)
+
+mgr2.set_schedule("fresh", at=_past_at, enabled=True)   # 刚配、今天已过点
+mgr2._tick()
+print("   刚配的已过点任务触发了吗:", "fresh" in fired, "→ 期望 False", "PASS" if "fresh" not in fired else "FAIL")
+
+mgr2.set_schedule("future", at="23:59", enabled=True)   # 配的是未来时间
+mgr2._tick()
+print("   未来时间任务触发了吗:", "future" in fired, "→ 期望 False", "PASS" if "future" not in fired else "FAIL")
+
+mgr2.set_schedule("stale", at=_past_at, enabled=True)   # 昨天配的：正常补跑
+_d = mgr2._read()
+_d["stale"]["updated_at"] = (_dt.now() - _td(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+mgr2._write(_d)
+mgr2._tick()
+print("   昨天配的已过点任务触发了吗:", "stale" in fired, "→ 期望 True", "PASS" if "stale" in fired else "FAIL")
+
+_before = mgr2.get("fresh").get("updated_at")
+time.sleep(1.1)
+mgr2.set_schedule("fresh", params={"x": 1})   # 只改参数（自动同步）
+print("   只改参数 updated_at 变了吗:",
+      mgr2.get("fresh").get("updated_at") != _before, "→ 期望 False",
+      "PASS" if mgr2.get("fresh").get("updated_at") == _before else "FAIL")
+
 print("\n=== ⑥ 界面：工具定时条 + 总览窗口 ===")
 import ttkbootstrap as ttk
 import ui.dpi as dpi

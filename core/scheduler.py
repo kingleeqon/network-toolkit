@@ -157,6 +157,10 @@ class SchedulerManager(object):
         item.setdefault("at", "08:30")
         item.setdefault("enabled", False)
         item.setdefault("params", {})
+        # 记录「改时间/改启用」的时刻：刚配的任务不能因今天的触发点已过就补跑
+        # （只改参数的自动同步不算配置变更，不更新这个时间）
+        if at is not None or enabled is not None:
+            item["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         data[key] = item
         self._write(data)
         self._emit_status()
@@ -360,8 +364,23 @@ class SchedulerManager(object):
                 continue
             at = parse_at(item.get("at")) or (8, 30)
             target = now.replace(hour=at[0], minute=at[1], second=0, microsecond=0)
-            if now >= target:
-                self.run_now(key)
+            if now < target:
+                continue
+            # 刚配好的任务（今天的触发点之后才配置/启用）不补跑，留给明天：
+            # 否则「15 点配一个 2 点的任务」会立刻触发一次
+            if self._configured_after(key, target):
+                continue
+            self.run_now(key)
+
+    def _configured_after(self, key, target):
+        """定时项是不是在今天的触发点之后才配置的（配置时刻晚于 target）。"""
+        updated = (self.get(key) or {}).get("updated_at") or ""
+        if not updated:
+            return False
+        try:
+            return datetime.strptime(updated, "%Y-%m-%d %H:%M:%S") > target
+        except ValueError:
+            return False
 
     def _emit_status(self):
         try:

@@ -10,3 +10,5 @@ scripts/schedules.json
 .history_cache.pkl
 *.xlsx
 *.xls
+scripts\push_via_api.py
+infra\vendor_profiles.json
