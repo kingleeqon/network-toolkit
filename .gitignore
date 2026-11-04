@@ -11,3 +11,6 @@ scripts/schedules.json
 *.xlsx
 *.xls
 scripts/push.cmd
+scripts/push_via_api.py
+infra/vendor_profiles.json
+tests/

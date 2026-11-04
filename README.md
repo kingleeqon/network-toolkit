@@ -22,7 +22,7 @@ python main.py --list-tools # 列出已注册工具与加载错误
 python main.py --selftest   # 无界面冒烟：验证队列/并发/异常隔离/落盘/清单导入
 python main.py --cli <tool_id> key=value ...  # 无界面运行指定工具（参数 key=value）
 python scripts/prune_output.py               # 清理 output/ 过期任务目录（默认干跑）
-python tests/run_all.py                      # 跑全部验证脚本（自动发现）
+python tests/run_all.py                      # 跑全部回归脚本（仅开发机有 tests/）
 ```
 
 首次建议先跑 `--selftest`：它用内置的**演示工具**（不连真实设备）跑完整链路，
@@ -134,18 +134,10 @@ network-toolkit/
 │   ├── session_rename.py   # 会话 Hostname 批量修改
 │   ├── session_sync.py     # 会话配置项同步（密码等）
 │   └── zte_check.py        # 中兴交换机合规检查
-├── tests/                 # 验证脚本（不属于程序本体，改完代码跑一遍）
-│   ├── run_all.py         # 一键跑全部：自动发现 tests/test_*.py
-│   ├── samples/           # 7 厂商真实回显样本（脱敏截取），golden test 用
-│   ├── test_vendor_parser.py # 解析 golden test：识别/CRC/描述（7 厂商样本）
-│   ├── test_framework.py  # 并发框架：异常隔离 / 取消补账 / 列数校验 / 工具发现
-│   ├── test_core.py       # 退出码文案 / 0 结果判定 / 定时配置并发写
-│   ├── test_fenghuo.py    # 烽火/迪普产品分流、!end 结束标记、paramiko 读取完整性
-│   ├── test_tools.py      # 采集类工具：命令选择 / 状态语义 / 归档内容（假会话）
-│   ├── test_result_io.py  # 结果行落盘契约（write_rows ↔ read_rows 往返）
-│   ├── test_prune.py      # output 清理：只删过期任务目录，不碰文件/工具根目录
-│   └── test_sched.py      # 多任务定时器 + 工具定时条 + 总览窗口（需要 GUI 环境）
 └── output/                # 结果输出：output/{tool_id}/{时间戳}_{task}/...
+
+> `tests/`（本地回归脚本）**不入库**，只在开发机上保留、已被 .gitignore 忽略。
+> 它不属于程序本体，运行完全不依赖；内容与用途见 tests/README_本地测试.md。
 ```
 
 ## 4. 如何接入一个新工具（照抄 demo_scan.py）
