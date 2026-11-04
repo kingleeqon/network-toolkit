@@ -136,6 +136,10 @@ network-toolkit/
 │   └── zte_check.py        # 中兴交换机合规检查
 ├── tests/                 # 验证脚本（不属于程序本体，改完代码跑一遍）
 │   ├── run_all.py         # 一键跑全部：自动发现 tests/test_*.py
+│   ├── samples/           # 7 厂商真实回显样本（脱敏截取），golden test 用
+│   ├── test_vendor_parser.py # 解析 golden test：识别/CRC/描述（7 厂商样本）
+│   ├── test_framework.py  # 并发框架：异常隔离 / 取消补账 / 列数校验 / 工具发现
+│   ├── test_core.py       # 退出码文案 / 0 结果判定 / 定时配置并发写
 │   ├── test_fenghuo.py    # 烽火/迪普产品分流、!end 结束标记、paramiko 读取完整性
 │   ├── test_tools.py      # 采集类工具：命令选择 / 状态语义 / 归档内容（假会话）
 │   ├── test_result_io.py  # 结果行落盘契约（write_rows ↔ read_rows 往返）
