@@ -727,15 +727,35 @@ class MainWindow(object):
         """保存当前工具的定时设置（时间 + 启用 + 当前参数快照）。"""
         if not self.scheduler or not getattr(self, "_sched_key", None):
             return
+        enabled = bool(self.var_sched_on.get())
+        if enabled:
+            # 启用前先做工具级校验：参数不全时到点必然失败（如 CRC 对比没选目录）
+            err = self._validate_sched_params()
+            if err:
+                Messagebox.show_warning(err, title="定时任务参数不完整",
+                                        parent=self.root)
+                self.var_sched_on.set(False)
+                return
         try:
             self.scheduler.set_schedule(
                 self._sched_key,
                 at=self.var_sched_at.get(),
-                enabled=bool(self.var_sched_on.get()),
+                enabled=enabled,
                 params=self._current_params())
         except Exception:
             pass
         self._refresh_sched_bar()
+
+    def _validate_sched_params(self):
+        """调工具的 validate_params；没有该钩子或校验通过时返回空串。"""
+        try:
+            tool = self.current_tool
+            check = getattr(tool, "validate_params", None)
+            if not callable(check):
+                return ""
+            return check(self._current_params()) or ""
+        except Exception:
+            return ""
 
     def _run_sched_now(self):
         """立即执行一次当前工具（走定时任务通道，日志进「运行日志」）。"""

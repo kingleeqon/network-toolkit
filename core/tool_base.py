@@ -66,3 +66,12 @@ class BaseTool(ABC):
         每台设备处理前必须检查 ctx.cancel_event.is_set()。
         """
         raise NotImplementedError
+
+    def validate_params(self, params):
+        """工具级参数校验：返回错误文案，空串表示通过。
+
+        界面在「启用定时」前会调用它——定时任务用的是参数快照，
+        缺参到点必然失败（如 CRC 对比没选目录），必须当场拦住。
+        默认不校验，需要跨字段规则的工具有选择地覆盖。
+        """
+        return ""

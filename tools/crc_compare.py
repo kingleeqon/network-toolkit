@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from core.errors import ConfigError
 from core.tool_base import BaseTool, ParamSpec
 from infra.vendor_parser import detect_vendor, extract_crc_info
 
@@ -39,6 +40,23 @@ def _guess_date(dir_path):
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def _latest_two_day_dirs(root):
+    """取根目录下最近两个「YYYY-MM-DD」子目录 → (昨日目录, 今日目录)；不够两个返回 None。
+
+    归档结构是 <根>/<日期>/<设备名>.log，定时任务每天跑都想比"最近两天"，
+    所以按日期目录名排序取最后两个，不用每天改参数。
+    """
+    base = Path(root)
+    if not base.is_dir():
+        return None
+    days = [p for p in base.iterdir()
+            if p.is_dir() and re.fullmatch(r"20\d{2}-\d{2}-\d{2}", p.name)]
+    if len(days) < 2:
+        return None
+    days.sort(key=lambda p: p.name)
+    return days[-2], days[-1]
+
+
 class CrcCompareTool(BaseTool):
     id = "crc_compare"
     name = "接口CRC对比分析"
@@ -47,9 +65,13 @@ class CrcCompareTool(BaseTool):
     description = "对比昨日/今日接口采集日志，按接口汇总 CRC 值并计算差值（结果按日期落盘，供趋势分析）"
 
     params = [
-        ParamSpec(key="yesterday_dir", label="昨日日志目录", type="dir", required=True,
+        ParamSpec(key="auto_root", label="自动取最近两日（根目录，可选）", type="dir",
+                  required=False,
+                  help="填了它就不用选下面两个目录：自动取该根目录下最近两个日期子目录"
+                       "（形如 2026-11-03）。定时任务建议用这个——每天自动对比最近两天"),
+        ParamSpec(key="yesterday_dir", label="昨日日志目录", type="dir", required=False,
                   help="时间1（昨日）接口采集日志目录"),
-        ParamSpec(key="today_dir", label="今日日志目录", type="dir", required=True,
+        ParamSpec(key="today_dir", label="今日日志目录", type="dir", required=False,
                   help="时间2（今日）接口采集日志目录"),
     ]
 
@@ -58,14 +80,39 @@ class CrcCompareTool(BaseTool):
     # 本工具只产出结果表，无需图表标签页
     output_tabs = ["result", "log", "summary"]
 
+    def validate_params(self, params):
+        """启用定时前的前置校验：要么填自动根目录，要么两个目录都选。"""
+        if (params.get("auto_root") or "").strip():
+            return ""
+        if not (params.get("yesterday_dir") or "").strip():
+            return "请选择「昨日日志目录」，或填写「自动取最近两日」的根目录"
+        if not (params.get("today_dir") or "").strip():
+            return "请选择「今日日志目录」，或填写「自动取最近两日」的根目录"
+        return ""
+
     def run(self, params, ctx, emit):
-        t1 = params["yesterday_dir"]
-        t2 = params["today_dir"]
+        # 目录解析：优先「自动取最近两日」，否则用选定的两个目录。
+        # 缺参时给中文提示，不能直接 params["x"] 崩成 KeyError
+        auto_root = (params.get("auto_root") or "").strip()
+        if auto_root:
+            pair = _latest_two_day_dirs(auto_root)
+            if not pair:
+                raise ConfigError("「自动取最近两日」的根目录下不足两个日期子目录"
+                                  "（需形如 2026-11-03）：%s" % auto_root)
+            t1, t2 = str(pair[0]), str(pair[1])
+            ctx.log("自动选取最近两日：昨日 %s，今日 %s"
+                    % (Path(t1).name, Path(t2).name))
+        else:
+            t1 = (params.get("yesterday_dir") or "").strip()
+            t2 = (params.get("today_dir") or "").strip()
+            if not t1 or not t2:
+                raise ConfigError("请先选择「昨日日志目录」和「今日日志目录」，"
+                                  "或填写「自动取最近两日」的根目录")
 
         if not Path(t2).is_dir():
-            ctx.log("今日日志目录不存在", level="ERROR")
-            emit("done", {"summary": {"total": 0}})
-            return
+            raise ConfigError("今日日志目录不存在：%s" % t2)
+        if not Path(t1).is_dir():
+            raise ConfigError("昨日日志目录不存在：%s" % t1)
 
         date_str = _guess_date(t2)
 

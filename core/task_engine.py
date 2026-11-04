@@ -150,13 +150,21 @@ class TaskEngine:
             self.tool.run(self.params, self.ctx, self._emit)
         except Exception as exc:
             status = map_fail_reason(exc)
-            logger.exception("批次级异常")
-            self._errored = True
-            self._emit(MsgType.ERROR, {
-                "code": "BATCH_ERROR",
-                "msg": "任务执行失败：%s" % redact_text(str(exc)),
-                "detail": "%s: %s" % (type(exc).__name__, redact_text(str(exc))),
-            })
+            from core.errors import ConfigError
+            if isinstance(exc, ConfigError):
+                # 参数没配好（如没选目录）：只记一句中文理由，不打 traceback
+                logger.error("任务参数错误：%s", exc)
+                self._errored = True
+                self._emit(MsgType.LOG, {"level": "ERROR",
+                                         "msg": redact_text(str(exc))})
+            else:
+                logger.exception("批次级异常")
+                self._errored = True
+                self._emit(MsgType.ERROR, {
+                    "code": "BATCH_ERROR",
+                    "msg": "任务执行失败：%s" % redact_text(str(exc)),
+                    "detail": "%s: %s" % (type(exc).__name__, redact_text(str(exc))),
+                })
         finally:
             # 工具若已自行发出 done，此处不再重复发送
             if not self._closed.is_set():

@@ -17,6 +17,14 @@ class DependencyMissing(Exception):
     """依赖库缺失（如未安装 netmiko / paramiko / openpyxl）。"""
 
 
+class ConfigError(Exception):
+    """参数/环境不满足运行条件（如没选目录、目录不存在）。
+
+    这类错误是「用户还没配好」，不是代码异常：引擎只记一句中文理由，
+    不打 traceback，但任务状态仍记 FAILED（不能当成正常完成）。
+    """
+
+
 class CredentialError(Exception):
     """凭证缺失或解密失败。"""
 

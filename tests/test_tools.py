@@ -182,6 +182,30 @@ check("描述采集也进 vty", "user-interface vty 0 4" in ctx.cmds, True)
 check("描述采集也关屏显", "screen-length 0" in ctx.cmds, True)
 check("描述采集收尾 return", "return" in ctx.cmds, True)
 
+print("=== ⑧ CRC 对比：自动取最近两日 / 缺参给中文提示 ===")
+import tools.crc_compare as cc
+from core.errors import ConfigError
+
+root_dir = Path(tempfile.mkdtemp())
+for d in ("2026-10-27", "2026-10-28", "2026-10-29", "not-a-date"):
+    (root_dir / d).mkdir()
+_y, _t = cc._latest_two_day_dirs(str(root_dir))
+print("   自动选取：%s → %s" % (_y.name, _t.name))
+check("取最近两个日期目录", (_y.name, _t.name), ("2026-10-28", "2026-10-29"))
+check("不足两天返回 None", cc._latest_two_day_dirs(str(root_dir / "nope")), None)
+
+_crc = cc.CrcCompareTool()
+check("validate_params 缺参有提示", bool(_crc.validate_params({})), True)
+check("validate_params 有根目录通过",
+      _crc.validate_params({"auto_root": str(root_dir)}), "")
+check("validate_params 两个目录齐全通过",
+      _crc.validate_params({"yesterday_dir": "a", "today_dir": "b"}), "")
+try:
+    _crc.run({}, FakeCtx("ok", Path(tempfile.mkdtemp()), []), lambda *a, **k: None)
+    check("缺参抛 ConfigError", False, True)
+except ConfigError as exc:
+    check("缺参抛 ConfigError", "请先选择" in str(exc), True)
+
 print()
 if fails:
     print("[FAIL] %d 项不通过：%s" % (len(fails), "、".join(fails)))
