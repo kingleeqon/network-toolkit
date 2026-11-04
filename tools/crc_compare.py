@@ -7,6 +7,7 @@
 """
 import os
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -73,6 +74,9 @@ class CrcCompareTool(BaseTool):
                   help="时间1（昨日）接口采集日志目录"),
         ParamSpec(key="today_dir", label="今日日志目录", type="dir", required=False,
                   help="时间2（今日）接口采集日志目录"),
+        ParamSpec(key="out_dir", label="结果输出目录（可选）", type="dir", required=False,
+                  help="填了就把 Excel 另存一份到该目录（按日期命名 CRC对比_YYYY-MM-DD.xlsx，"
+                       "同日重复运行会覆盖）；任务目录里始终保留一份"),
     ]
 
     result_columns = ["设备名称", "接口名称", "今日CRC值", "昨日CRC值", "CRC差值", "厂商", "状态", "失败原因"]
@@ -161,6 +165,19 @@ class CrcCompareTool(BaseTool):
         out = self._write_excel(results, date_str, ctx)
         ctx.log("CRC 对比完成：成功 %d 设备 / 跳过 %d，记录 %d 条（日期 %s）-> %s"
                 % (processed, skipped, len(results), date_str, out))
+
+        # 另存到指定目录（定时任务用参数快照，配一次就一直生效）
+        out_dir = (params.get("out_dir") or "").strip()
+        if out_dir and out:
+            try:
+                folder = Path(out_dir)
+                folder.mkdir(parents=True, exist_ok=True)
+                target = folder / ("CRC对比_%s%s" % (date_str, out.suffix))
+                shutil.copy2(str(out), str(target))
+                ctx.log("结果已另存：%s（同日重复运行会覆盖同名文件）" % target)
+            except Exception as exc:
+                ctx.log("另存到「%s」失败，结果仍在任务目录：%s" % (out_dir, exc),
+                        level="WARN")
 
         # 结果表展示「有 CRC 变化」的接口明细（列与内容一一对应）；
         # 全量明细始终在 Excel 中，避免 5.8 万行卡死界面。

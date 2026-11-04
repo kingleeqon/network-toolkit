@@ -206,6 +206,26 @@ try:
 except ConfigError as exc:
     check("缺参抛 ConfigError", "请先选择" in str(exc), True)
 
+print("=== ⑨ CRC 对比：结果另存到指定目录 ===")
+_root = Path(tempfile.mkdtemp())
+for _d, _crc_val in (("2026-11-03", 3), ("2026-11-04", 7)):
+    (_root / _d).mkdir()
+    (_root / _d / "DEV1.log").write_bytes(
+        ("zte_zxros\r\n\r\nxge-0/1/1/1 is administratively down\r\n"
+         "  In_CRC_ERROR %d\r\n" % _crc_val).encode("utf-8"))
+_out = Path(tempfile.mkdtemp())
+_msgs = []
+_ctx = FakeCtx("ok", Path(tempfile.mkdtemp()), [])
+_ctx._emit = lambda t, p: _msgs.append((t, p))
+_crc.run({"auto_root": str(_root), "out_dir": str(_out)}, _ctx,
+         lambda *a, **k: None)
+_saved = list(_out.glob("CRC对比_*.xlsx"))
+print("   另存文件:", [p.name for p in _saved])
+check("另存到指定目录", len(_saved), 1)
+check("文件名带日期", _saved and _saved[0].name, "CRC对比_2026-11-04.xlsx")
+_logs = [p["msg"] for t, p in _msgs if getattr(t, "value", t) == "log"]
+check("日志里有另存路径", any("结果已另存" in m for m in _logs), True)
+
 print()
 if fails:
     print("[FAIL] %d 项不通过：%s" % (len(fails), "、".join(fails)))
