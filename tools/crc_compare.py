@@ -84,6 +84,41 @@ class CrcCompareTool(BaseTool):
     # 本工具只产出结果表，无需图表标签页
     output_tabs = ["result", "log", "summary"]
 
+    # 界面在参数区右侧展示「结果输出目录」里的历史结果
+    result_files_param = "out_dir"
+
+    def list_result_files(self, folder):
+        """列出结果输出目录里的历史对比结果（新的在前）。"""
+        try:
+            files = sorted(Path(folder).glob("CRC对比_*.xlsx"),
+                           key=lambda p: p.name, reverse=True)
+        except Exception:
+            return []
+        return [(p.name, str(p)) for p in files]
+
+    def load_result_file(self, path):
+        """把历史 Excel 读成结果表行：只留有变化的接口（与运行时的展示口径一致）。
+
+        Excel 里是全量明细（可能 5 万+行），直接塞进表格会卡死界面，
+        所以按 CRC差值 != 0 过滤并按差值绝对值排序，最多 5000 行。
+        """
+        import pandas as pd
+        df = pd.read_excel(path)
+        rows = []
+        for _, r in df.iterrows():
+            diff = r.get("CRC差值", 0)
+            try:
+                if float(diff or 0) == 0:
+                    continue
+            except (TypeError, ValueError):
+                pass
+            rows.append([r.get("设备名称", ""), r.get("接口名称", ""),
+                         r.get("今日CRC值", 0), r.get("昨日CRC值", 0),
+                         diff, r.get("厂商", ""), "成功", ""])
+        to_num = lambda x: abs(float(x)) if isinstance(x, (int, float)) else 0
+        rows.sort(key=lambda row: to_num(row[4]), reverse=True)
+        return list(self.result_columns), rows[:_MAX_RESULT_ROWS]
+
     def validate_params(self, params):
         """启用定时前的前置校验：要么填自动根目录，要么两个目录都选。"""
         if (params.get("auto_root") or "").strip():

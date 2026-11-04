@@ -75,3 +75,14 @@ class BaseTool(ABC):
         默认不校验，需要跨字段规则的工具有选择地覆盖。
         """
         return ""
+
+    # —— 历史结果面板（可选）：填了参数名，界面就在参数区右侧列出该目录的历史结果 ——
+    result_files_param = ""
+
+    def list_result_files(self, folder):
+        """列出 folder 里的历史结果文件 → [(显示名, 完整路径)]，新的在前。"""
+        return []
+
+    def load_result_file(self, path):
+        """读历史结果文件 → (columns, rows)，供结果表展示；不支持返回 None。"""
+        return None

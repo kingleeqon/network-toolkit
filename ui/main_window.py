@@ -556,6 +556,7 @@ class MainWindow(object):
             if rows:
                 cached["columns"] = columns or cached.get("columns") or []
                 cached["rows"] = rows
+        self._refresh_result_files()
 
     def _load_sched_rows(self, output_dir):
         """读定时运行落盘的 result.json → (columns, [(row, status), ...])。
@@ -637,7 +638,11 @@ class MainWindow(object):
             pass
 
     def _on_form_changed(self, *_args):
-        """表单任一参数变化 → 防抖同步定时快照。"""
+        """表单任一参数变化 → 防抖同步定时快照 + 刷新历史结果列表。"""
+        try:
+            self._refresh_result_files()
+        except Exception:
+            pass
         try:
             job = getattr(self, "_sched_sync_job", None)
             if job:
@@ -904,6 +909,8 @@ class MainWindow(object):
         self._fill_recent_device_list()
         self._build_sched_bar(tool)
         self._add_font_row()
+        # 参数区右侧的「历史结果」面板（工具声明了 result_files_param 才有）
+        self._build_result_files_panel(tool)
         # 换工具后参数区回到顶部并刷新滚动范围（否则新表单会停在上一份的滚动位置）
         try:
             self.form_canvas.yview_moveto(0)
@@ -965,6 +972,150 @@ class MainWindow(object):
         spin.bind("<FocusOut>", lambda e: self._on_font_size_change())
         ttk.Label(box, text="（作用于结果表/日志/摘要/图表，自动记忆）",
                   bootstyle="secondary").pack(side="left", padx=(4, 0))
+
+    # —— 参数区右侧：历史结果（工具声明 result_files_param 时显示）——
+    def _result_files_folder(self):
+        """当前工具「结果输出目录」参数的值。"""
+        try:
+            key = getattr(self.current_tool, "result_files_param", "")
+            if not key:
+                return ""
+            return str(self.form.vars[key].get() or "").strip()
+        except Exception:
+            return ""
+
+    def _build_result_files_panel(self, tool):
+        """在参数区右侧列出「结果输出目录」里的历史结果，双击载入结果表。"""
+        self._files_panel = None
+        self._files_list = None
+        self._result_files = []
+        if tool is None or not getattr(tool, "result_files_param", ""):
+            return
+        if self._form_avail_width() < 820:
+            return          # 窄窗口先不挤，宽度恢复后 _reflow_form 会重建
+        try:
+            rowspan = max(1, self.form.footer_row())
+            panel = ttk.Frame(self.form_frame)
+            panel.grid(row=0, column=4, rowspan=rowspan, sticky="nsew",
+                       padx=(6, 8), pady=(4, 4))
+            self.form_frame.columnconfigure(4, weight=2, minsize=200)
+
+            ttk.Label(panel, text="历史结果（结果输出目录）",
+                      bootstyle="secondary").pack(anchor="w")
+            box = ttk.Frame(panel)
+            box.pack(fill="both", expand=True, pady=(4, 2))
+            sb = ttk.Scrollbar(box, orient="vertical")
+            lb = tk.Listbox(box, yscrollcommand=sb.set, activestyle="none",
+                            exportselection=False, height=6)
+            sb.configure(command=lb.yview)
+            sb.pack(side="right", fill="y")
+            lb.pack(side="left", fill="both", expand=True)
+            lb.bind("<Double-Button-1>", lambda e: self._open_selected_result())
+
+            ttk.Label(panel, text="双击载入结果表", bootstyle="secondary").pack(anchor="w")
+            bar = ttk.Frame(panel)
+            bar.pack(fill="x", pady=(4, 0))
+            ttk.Button(bar, text="打开目录", bootstyle="secondary-outline",
+                       command=self._open_result_files_dir).pack(side="left")
+            ttk.Button(bar, text="刷新", bootstyle="secondary-outline",
+                       command=self._refresh_result_files).pack(side="left", padx=6)
+
+            self._files_panel = panel
+            self._files_list = lb
+            self._refresh_result_files()
+        except Exception:
+            self._files_panel = None
+            self._files_list = None
+
+    def _sync_result_panel(self, width):
+        """宽度够就显示历史结果面板，不够就收起（不销毁，避免反复重建）。"""
+        try:
+            if self.current_tool is None:
+                return
+            if not getattr(self.current_tool, "result_files_param", ""):
+                return
+            wide = float(width) >= 820
+            panel = getattr(self, "_files_panel", None)
+            if panel is None:
+                if wide:
+                    self._build_result_files_panel(self.current_tool)
+                return
+            if wide:
+                if not panel.winfo_ismapped():
+                    panel.grid()
+            else:
+                panel.grid_remove()
+        except Exception:
+            pass
+
+    def _refresh_result_files(self):
+        """重新扫描结果输出目录，刷新文件列表。"""
+        lb = getattr(self, "_files_list", None)
+        if lb is None:
+            return
+        self._result_files = []
+        try:
+            lb.delete(0, "end")
+        except Exception:
+            return
+        folder = self._result_files_folder()
+        if not folder:
+            lb.insert("end", "（先在参数里填「结果输出目录」）")
+            return
+        try:
+            files = self.current_tool.list_result_files(folder) or []
+        except Exception:
+            files = []
+        if not files:
+            lb.insert("end", "（目录里还没有结果文件）")
+            return
+        self._result_files = files
+        for name, _path in files:
+            lb.insert("end", name)
+
+    def _open_selected_result(self):
+        """双击历史结果 → 读成结果表显示。"""
+        lb = getattr(self, "_files_list", None)
+        if lb is None:
+            return
+        sel = lb.curselection()
+        if not sel or not getattr(self, "_result_files", None):
+            return
+        idx = sel[0]
+        if idx >= len(self._result_files):
+            return                      # 点到占位提示行
+        name, path = self._result_files[idx]
+        try:
+            loaded = self.current_tool.load_result_file(path)
+        except Exception as exc:
+            Messagebox.show_error("读取失败：%s" % exc, title="载入历史结果",
+                                  parent=self.root)
+            return
+        if not loaded:
+            return
+        columns, rows = loaded
+        try:
+            self.result_view.set_columns(columns)
+            self.result_view.rows = [(list(r), "OK") for r in rows]
+            self.result_view.refresh()
+            self._select_tab("result")
+            self.log_view.append("INFO", "已载入历史结果：%s（%d 行）" % (name, len(rows)))
+            self._save_outputs()
+        except Exception as exc:
+            Messagebox.show_error(str(exc), title="载入失败", parent=self.root)
+
+    def _open_result_files_dir(self):
+        """打开「结果输出目录」（不存在就先建）。"""
+        folder = self._result_files_folder()
+        if not folder:
+            Messagebox.show_info("请先在参数里填「结果输出目录」", title="提示",
+                                 parent=self.root)
+            return
+        try:
+            Path(folder).mkdir(parents=True, exist_ok=True)
+            os.startfile(str(Path(folder)))
+        except Exception as exc:
+            Messagebox.show_error(str(exc), title="打开失败", parent=self.root)
 
     # —— 参数区 / 输出区 的上下分配 ——
     def _on_right_configure(self, event):
@@ -1060,6 +1211,8 @@ class MainWindow(object):
             want = (len(self.form.params) >= TWO_COLUMN_THRESHOLD
                     and float(width) >= TWO_COLUMN_MIN_W)
             if bool(getattr(self.form, "two_col", True)) == want:
+                # 表单不用重建，但历史结果面板要跟着宽度显示/隐藏
+                self._sync_result_panel(width)
                 return
             # 重建会丢控件状态，先把当前取值抓出来
             vals = {}
@@ -1079,6 +1232,11 @@ class MainWindow(object):
                     except Exception:
                         pass
             self._add_font_row()
+            # 重建后定时条和历史结果面板都要重新挂上（否则窗口缩放一次就消失）
+            if self.current_tool is not None:
+                self._build_sched_bar(self.current_tool)
+            self._build_result_files_panel(self.current_tool)
+            self._sync_result_panel(width)
             self.root.after_idle(self._on_form_inner_configure)
             self.root.after_idle(self._fit_form_pane)
         except Exception:
@@ -1389,6 +1547,8 @@ class MainWindow(object):
             self._update_summary()
             # 参数可能刚改过（如归档目录），同步一次定时快照
             self._sync_sched_params()
+            # 本次可能往结果输出目录写了新文件，刷新历史列表
+            self._refresh_result_files()
             # 任务结束统一落缓存（含图表/日志/摘要），保证切走再切回内容仍在
             self._save_outputs()
 
