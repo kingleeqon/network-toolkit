@@ -566,15 +566,8 @@ class MainWindow(object):
         """
         if not output_dir:
             return [], []
-        try:
-            data = json.loads((Path(output_dir) / "result.json").read_text(encoding="utf-8"))
-        except Exception:
-            return [], []
-        columns = list(data.get("columns") or [])
-        rows = []
-        for item in data.get("items") or []:
-            rows.append((list(item.get("row") or []), item.get("status") or "OK"))
-        return columns, rows
+        from core.result_writer import read_rows
+        return read_rows(output_dir)
 
     def _build_sched_summary(self, key, flag, code, output_dir, run_at):
         title = self.scheduler.title_of(key) if self.scheduler else key
@@ -638,11 +631,10 @@ class MainWindow(object):
             pass
 
     def _on_form_changed(self, *_args):
-        """表单任一参数变化 → 防抖同步定时快照 + 刷新历史结果列表。"""
-        try:
-            self._refresh_result_files()
-        except Exception:
-            pass
+        """表单任一参数变化 → 防抖同步定时快照 + 防抖刷新历史结果列表。"""
+        # 历史结果列表只在「结果输出目录」真的变了才扫盘（用户每敲一个字符
+        # 都 glob 一次没必要，路径没输完时还会扫到不存在的目录）
+        self._schedule_refresh_result_files()
         try:
             job = getattr(self, "_sched_sync_job", None)
             if job:
@@ -988,6 +980,8 @@ class MainWindow(object):
         """在参数区右侧列出「结果输出目录」里的历史结果，双击载入结果表。"""
         self._files_panel = None
         self._files_list = None
+        self._files_job = None
+        self._files_folder_last = None
         self._result_files = []
         if tool is None or not getattr(tool, "result_files_param", ""):
             return
@@ -1048,6 +1042,30 @@ class MainWindow(object):
         except Exception:
             pass
 
+    def _schedule_refresh_result_files(self):
+        """目录参数变化后延迟 400ms 刷新历史结果列表（合并连续输入）。"""
+        lb = getattr(self, "_files_list", None)
+        if lb is None:
+            return
+        try:
+            if self._result_files_folder() == getattr(self, "_files_folder_last", None):
+                return
+            job = getattr(self, "_files_job", None)
+            if job:
+                self.root.after_cancel(job)
+            self._files_job = self.root.after(400, self._refresh_result_files_now)
+        except Exception:
+            pass
+
+    def _refresh_result_files_now(self):
+        """防抖到期后真正扫盘（记录本次目录，避免同样的值反复触发）。"""
+        self._files_job = None
+        try:
+            self._files_folder_last = self._result_files_folder()
+        except Exception:
+            self._files_folder_last = None
+        self._refresh_result_files()
+
     def _refresh_result_files(self):
         """重新扫描结果输出目录，刷新文件列表。"""
         lb = getattr(self, "_files_list", None)
@@ -1059,6 +1077,7 @@ class MainWindow(object):
         except Exception:
             return
         folder = self._result_files_folder()
+        self._files_folder_last = folder
         if not folder:
             lb.insert("end", "（先在参数里填「结果输出目录」）")
             return

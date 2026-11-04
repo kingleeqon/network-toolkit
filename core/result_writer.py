@@ -42,6 +42,25 @@ def write_rows(task_dir, columns, rows, statuses=None):
     return path
 
 
+def read_rows(task_dir):
+    """读 write_rows 落盘的结果行 → (columns, [(row, status), ...])。
+
+    与 write_rows 成对存在：界面回填定时结果时走这个函数，
+    不再自己在 UI 里拼解析逻辑（两端字段名漂移过一次，加测试锁住）。
+    """
+    import json as _json
+    path = Path(task_dir) / "result.json"
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return [], []
+    columns = list(data.get("columns") or [])
+    rows = []
+    for item in data.get("items") or []:
+        rows.append((list(item.get("row") or []), item.get("status") or "OK"))
+    return columns, rows
+
+
 def export_rows(rows, columns, target_path):
     """导出结果表。xlsx 用 openpyxl，缺失则退化为 csv；csv 带 BOM 防 Excel 中文乱码。"""
     target = Path(target_path)

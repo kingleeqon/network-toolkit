@@ -11,9 +11,12 @@
     python scripts/push_via_api.py --dry-run
 
     # 2) 真推（token 从环境变量读，不要写在命令行/文件里）
-    #    PowerShell:  $env:GITHUB_TOKEN='ghp_xxx'
-    #    cmd:         set GITHUB_TOKEN=ghp_xxx
-    setx GITHUB_TOKEN ghp_xxx
+    #    下面两行是**示例，请替换成真实 token**（原样粘贴只会把假 token
+    #    写进用户环境变量，之后脚本读到它只会静默失败）：
+    #        PowerShell:  $env:GITHUB_TOKEN='ghp_你的真实token'
+    #        cmd:         set GITHUB_TOKEN=ghp_你的真实token
+    #    想长期生效再用 setx（会把 token 持久化到注册表，同机进程都能读到）：
+    #        setx GITHUB_TOKEN ghp_你的真实token
     python scripts/push_via_api.py
 
 需要 token 具备 repo 权限（Classic PAT 的 repo 或 Fine-grained PAT 的
@@ -59,8 +62,11 @@ def commit_info(sha):
         "sha": sha,
         "parents": parents,
         "message": git("log", "-1", "--format=%B", sha).rstrip("\n"),
-        "author": git("log", "-1", "--format=%an%n%ae", sha).split("\n"),
-        "committer": git("log", "-1", "--format=%cn%n%ce", sha).split("\n"),
+        # 姓名/邮箱分开取：%an%n%ae 再用 split 拆，邮箱缺失时会错位甚至越界
+        "author": [git("log", "-1", "--format=%an", sha).strip(),
+                   git("log", "-1", "--format=%ae", sha).strip()],
+        "committer": [git("log", "-1", "--format=%cn", sha).strip(),
+                      git("log", "-1", "--format=%ce", sha).strip()],
         "tree": git("log", "-1", "--format=%T", sha).strip(),
     }
 
@@ -160,9 +166,10 @@ def main():
             "message": info["message"],
             "tree": tree["sha"],
             "parents": [parent],
-            "author": {"name": info["author"][0], "email": info["author"][1]},
-            "committer": {"name": info["committer"][0],
-                          "email": info["committer"][1]},
+            "author": {"name": info["author"][0] or "unknown",
+                       "email": info["author"][1] or "unknown@example.com"},
+            "committer": {"name": info["committer"][0] or "unknown",
+                          "email": info["committer"][1] or "unknown@example.com"},
         }, token)
         print("  已重建 %s → %s" % (sha[:8], commit["sha"][:8]))
         parent = commit["sha"]

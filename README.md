@@ -21,6 +21,8 @@ python main.py              # 启动 GUI
 python main.py --list-tools # 列出已注册工具与加载错误
 python main.py --selftest   # 无界面冒烟：验证队列/并发/异常隔离/落盘/清单导入
 python main.py --cli <tool_id> key=value ...  # 无界面运行指定工具（参数 key=value）
+python scripts/prune_output.py               # 清理 output/ 过期任务目录（默认干跑）
+python tests/run_all.py                      # 跑全部验证脚本（自动发现）
 ```
 
 首次建议先跑 `--selftest`：它用内置的**演示工具**（不连真实设备）跑完整链路，
@@ -133,9 +135,11 @@ network-toolkit/
 │   ├── session_sync.py     # 会话配置项同步（密码等）
 │   └── zte_check.py        # 中兴交换机合规检查
 ├── tests/                 # 验证脚本（不属于程序本体，改完代码跑一遍）
-│   ├── run_all.py         # 一键跑全部：python tests/run_all.py
+│   ├── run_all.py         # 一键跑全部：自动发现 tests/test_*.py
 │   ├── test_fenghuo.py    # 烽火/迪普产品分流、!end 结束标记、paramiko 读取完整性
 │   ├── test_tools.py      # 采集类工具：命令选择 / 状态语义 / 归档内容（假会话）
+│   ├── test_result_io.py  # 结果行落盘契约（write_rows ↔ read_rows 往返）
+│   ├── test_prune.py      # output 清理：只删过期任务目录，不碰文件/工具根目录
 │   └── test_sched.py      # 多任务定时器 + 工具定时条 + 总览窗口（需要 GUI 环境）
 └── output/                # 结果输出：output/{tool_id}/{时间戳}_{task}/...
 ```
