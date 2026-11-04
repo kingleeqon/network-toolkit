@@ -189,8 +189,13 @@ class TaskEngine:
         elif total > 0 and success == 0 and partial == 0:
             self.state = FAILED
         elif total == 0:
-            # 无 result 项（如产图/纯落盘工具）且正常结束 → 已完成
-            self.state = SUCCEEDED
+            # 无 result 项：产图/纯落盘工具属正常；采集类工具 0 行说明没跑成
+            ok_empty = getattr(self.tool, "empty_result_ok", True)
+            self.state = SUCCEEDED if ok_empty else FAILED
+            if not ok_empty:
+                self._emit(MsgType.LOG, {
+                    "level": "ERROR",
+                    "msg": "未产生任何结果（0 条），判定为失败：请检查设备清单与参数"})
         else:
             self.state = PARTIAL
 

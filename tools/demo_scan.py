@@ -27,6 +27,9 @@ class DemoScanTool(BaseTool):
                   help="随机制造失败，用于验证异常隔离"),
     ]
 
+    # 设备清单跑完必须有行；0 行说明一台都没处理 → 判失败
+    empty_result_ok = False
+
     result_columns = ["IP", "设备名", "厂商", "状态", "耗时(ms)", "失败原因"]
 
     def run(self, params, ctx, emit):

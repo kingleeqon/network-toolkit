@@ -42,6 +42,9 @@ class IfaceDescTool(BaseTool):
         ParamSpec(key="timeout", label="超时(秒)", type="int", default=30, min=5, max=300),
     ]
 
+    # 设备清单跑完必须有行；0 行说明一台都没处理 → 判失败
+    empty_result_ok = False
+
     result_columns = ["设备名", "IP", "本地接口", "接口描述", "状态", "失败原因"]
 
     def run(self, params, ctx, emit):

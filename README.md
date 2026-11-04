@@ -222,12 +222,17 @@ class MyTool(BaseTool):
 
 两处特殊设备处理（保留现场逻辑）：
 
-1. **华为 E1000**（`10.185.2.3 / 10.185.2.4 / 172.24.249.34 / 172.24.252.58 /
-   10.182.250.15 / 10.182.250.16`）：普通关分屏命令不生效，要进 vty 改 ——
-   `sys` → `user-interface vty 0 4` → `screen-length 0` → 执行命令 → `undo screen-length`。
-   这几条命令没有可识别的结束标志，用 `send_timing` 发（不等提示符）。
-2. **烽火配置备份**：`172.20.249.201 / .202 / 172.22.164.89 / .90 / 172.20.249.184 /
-   172.20.249.88 / 172.24.249.38 / .39` 这批用 `terminal line 0`，其余 `terminal length 0`。
+1. **华为 E1000**：普通关分屏命令不生效，要进 vty 改 ——
+   `sys` → `user-interface vty 0 4` → `screen-length 0` → 执行命令 → `undo screen-length` → `return`。
+   这几条命令没有可识别的结束标志，用 `send_timing` 发（不等提示符）；
+   **命令必须夹在 `undo screen-length` 之前**（undo 后分页立刻恢复，长输出会卡住），
+   **收尾必须 `return`**（不退出 vty 视图，同会话后续命令会等错提示符）。
+2. **烽火配置备份分屏**：一批指定 IP 用 `terminal line 0`，其余用 `terminal length 0`。
+
+> 以上名单（E1000 的 IP、烽火分屏 IP、迪普防火墙的设备名标记 `DP`/`FW1000`）
+> **只在 `infra/vendor_profiles.json` 里维护**（`e1000.ips` /
+> `vendors.fiberhome.paging_off_by_ip.ips` / `...products.firewall.name_marks`），
+> README 不再抄写，避免文档与配置漂移。换设备只改这一个文件。
 
 另外：归档的 `.log` / `.cfg` **首行写设备类型标识**（`zte_zxros`/`hp_comware`/`cisco_ios`/
 `ruijie_os`/`huawei`/`FiberHome`/`DPtech`）—— CRC 对比的解析器靠它准确识别厂商，

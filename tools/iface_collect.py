@@ -74,6 +74,9 @@ class IfaceCollectTool(BaseTool):
                   help="「同时备份配置」时配置保存的位置"),
     ]
 
+    # 设备清单跑完必须有行；0 行说明一台都没处理 → 判失败
+    empty_result_ok = False
+
     result_columns = ["IP", "设备名", "厂商", "状态", "耗时(ms)", "字符数", "失败原因"]
 
     def run(self, params, ctx, emit):

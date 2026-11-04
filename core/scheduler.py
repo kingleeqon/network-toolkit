@@ -69,31 +69,14 @@ def elapsed_text(seconds):
 
 
 def exit_code_text(code, is_pipeline=False):
-    """退出码 → 状态文案。
+    """退出码 → 状态文案（文案定义统一在 core/exit_codes.describe）。
 
-    两套语义（见 core/exit_codes.py）：
+    两套语义见 core/exit_codes.py：
     - 单工具 --cli：0=成功 2=部分失败（跑完带错）1=失败/异常
-    - 每日流水线：0=成功 2=日期目录不足 3=采集未成功 4=对比失败
-      5=配置有误 6=备份失败（不阻断）
+    - 每日流水线：0=成功 2=日期目录不足 3=采集未成功 4=对比失败 5=配置有误 6=备份失败
     """
-    try:
-        code = int(code)
-    except (TypeError, ValueError):
-        return "失败(%s)" % code
-    if code == 0:
-        return "成功"
-    if is_pipeline:
-        pipeline = {
-            PIPE_DATE_DIR_LACK: "日期目录不足",
-            PIPE_COLLECT_FAIL: "采集未成功",
-            PIPE_COMPARE_FAIL: "对比失败",
-            PIPE_BAD_CONFIG: "配置有误",
-            PIPE_BACKUP_FAIL: "备份失败(对比已跑)",
-        }
-        return pipeline.get(code, "失败(退出码 %d)" % code)
-    if code == CLI_PARTIAL:
-        return "部分失败"
-    return "失败(退出码 %d)" % code
+    from core.exit_codes import describe
+    return describe(code, is_pipeline)
 
 
 class SchedulerManager(object):
@@ -109,7 +92,8 @@ class SchedulerManager(object):
         self._procs = {}
         self._stop = threading.Event()
         self._thread = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()          # 保护 running 字典
+        self._store_lock = threading.RLock()   # 保护配置文件的读-改-写
         self._reg = None         # Registry 缓存（工具清单运行期不变）
 
     # ---------- 存储 ----------
@@ -122,6 +106,18 @@ class SchedulerManager(object):
         except Exception as exc:
             self._warn("定时配置读取失败：%s" % exc)
             return {}
+
+    def _mutate(self, change):
+        """读-改-写串行化，返回改后的整份数据。
+
+        daemon tick 线程、每个任务的 worker 线程、GUI 线程都会改配置：
+        不加锁时两个「读→改→写」会互相覆盖（丢 last 或丢参数，静默发生）。
+        """
+        with self._store_lock:
+            data = self._read()
+            change(data)
+            self._write(data)
+            return data
 
     def _write(self, data):
         try:
@@ -146,30 +142,32 @@ class SchedulerManager(object):
 
     def set_schedule(self, key, at=None, enabled=None, params=None):
         """设置/更新一个定时任务。"""
-        data = self._read()
-        item = data.get(key) or {}
-        if at is not None:
-            item["at"] = normalize_at(at)
-        if enabled is not None:
-            item["enabled"] = bool(enabled)
-        if params is not None:
-            item["params"] = dict(params)
-        item.setdefault("at", "08:30")
-        item.setdefault("enabled", False)
-        item.setdefault("params", {})
-        # 记录「改时间/改启用」的时刻：刚配的任务不能因今天的触发点已过就补跑
-        # （只改参数的自动同步不算配置变更，不更新这个时间）
-        if at is not None or enabled is not None:
-            item["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        data[key] = item
-        self._write(data)
+        item = {}
+
+        def change(data):
+            entry = data.get(key) or {}
+            if at is not None:
+                entry["at"] = normalize_at(at)
+            if enabled is not None:
+                entry["enabled"] = bool(enabled)
+            if params is not None:
+                entry["params"] = dict(params)
+            entry.setdefault("at", "08:30")
+            entry.setdefault("enabled", False)
+            entry.setdefault("params", {})
+            # 记录「改时间/改启用」的时刻：刚配的任务不能因今天的触发点已过就补跑
+            # （只改参数的自动同步不算配置变更，不更新这个时间）
+            if at is not None or enabled is not None:
+                entry["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            data[key] = entry
+            item.update(entry)
+
+        self._mutate(change)
         self._emit_status()
         return item
 
     def remove(self, key):
-        data = self._read()
-        data.pop(key, None)
-        self._write(data)
+        self._mutate(lambda data: data.pop(key, None))
         self._emit_status()
 
     def enabled_entries(self):
@@ -327,14 +325,15 @@ class SchedulerManager(object):
         return True, "已开始执行：%s" % title
 
     def _record_result(self, key, code, output_dir=None):
-        data = self._read()
-        item = data.get(key) or {}
-        item["last"] = {"date": datetime.now().strftime(DAY_KEY),
-                        "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "code": int(code),
-                        "output_dir": output_dir or ""}
-        data[key] = item
-        self._write(data)
+        def change(data):
+            entry = data.get(key) or {}
+            entry["last"] = {"date": datetime.now().strftime(DAY_KEY),
+                             "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                             "code": int(code),
+                             "output_dir": output_dir or ""}
+            data[key] = entry
+
+        self._mutate(change)
 
     def stop_all(self):
         """停掉调度循环（不杀正在跑的子进程，让它跑完）。"""

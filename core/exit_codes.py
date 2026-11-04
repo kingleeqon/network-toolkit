@@ -24,3 +24,30 @@ PIPE_COLLECT_FAIL = 3   # 采集未成功（成功 0 台或工具失败）
 PIPE_COMPARE_FAIL = 4   # CRC 对比未成功
 PIPE_BAD_CONFIG = 5     # 配置有误
 PIPE_BACKUP_FAIL = 6    # 配置备份无产出（不阻断对比，仅体现在退出码）
+
+
+def describe(code, is_pipeline=False):
+    """退出码 → 中文状态文案。
+
+    文案只在这一处定义：调度器（core/scheduler.py）与界面都调它，
+    避免「改退出码数值要两处同步」的隐性耦合。
+    """
+    try:
+        code = int(code)
+    except (TypeError, ValueError):
+        return "失败(%s)" % code
+    if code == CLI_OK:
+        return "成功"
+    if is_pipeline:
+        pipeline = {
+            PIPE_DATE_DIR_LACK: "日期目录不足",
+            PIPE_COLLECT_FAIL: "采集未成功",
+            PIPE_COMPARE_FAIL: "对比失败",
+            PIPE_BAD_CONFIG: "配置有误",
+            PIPE_BACKUP_FAIL: "备份失败(对比已跑)",
+            PIPE_TASK_FAIL: "计划任务操作失败",
+        }
+        return pipeline.get(code, "失败(退出码 %d)" % code)
+    if code == CLI_PARTIAL:
+        return "部分失败"
+    return "失败(退出码 %d)" % code

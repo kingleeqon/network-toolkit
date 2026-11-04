@@ -76,6 +76,10 @@ class BaseTool(ABC):
         """
         return ""
 
+    # 0 条结果算不算正常：产图/纯落盘工具（如趋势分析）=True；
+    # 采集类工具（设备清单跑完应有 N 行）=False，0 行说明没跑成，要判失败
+    empty_result_ok = True
+
     # —— 历史结果面板（可选）：填了参数名，界面就在参数区右侧列出该目录的历史结果 ——
     result_files_param = ""
 

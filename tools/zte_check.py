@@ -26,6 +26,9 @@ class ZteCheckTool(BaseTool):
         ParamSpec(key="timeout", label="超时(秒)", type="int", default=30, min=5, max=300),
     ]
 
+    # 设备清单跑完必须有行；0 行说明一台都没处理 → 判失败
+    empty_result_ok = False
+
     result_columns = ["IP", "设备名", "检查项", "状态", "详情", "失败原因"]
 
     def run(self, params, ctx, emit):
