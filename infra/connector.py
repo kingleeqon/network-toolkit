@@ -12,7 +12,7 @@ import time
 from typing import Optional
 
 from core.errors import DependencyMissing
-from infra.vendor_profiles import get_profile
+from infra.vendor_profiles import get_e1000_sequence, get_profile
 
 logger = logging.getLogger(__name__)
 
@@ -363,3 +363,35 @@ def open_session(device, timeout=30, ctx=None, paging_cmd=None):
     return ParamikoSession(device, credential, timeout=timeout,
                            paging=profile.get("paging", ""),
                            paging_off=paging_cmd)
+
+
+def run_e1000(session, cmd, timeout=30):
+    """华为 E1000 的特殊采集：进 vty 关屏显 → 执行命令 → 还原并退出视图。
+
+    这类设备的 `screen-length 0 temporary` 不生效，必须进 vty 改；
+    序列里的命令都不带可识别结束标志，所以用 send_timing（不等提示符）。
+
+    **命令必须夹在 undo screen-length 之前**：undo 之后分页立刻恢复，
+    长输出会卡在 ---- More ---- 上等不到提示符（表现为 Pattern not detected）。
+    **exit 必须 return**：只 undo 不退出的话会话停在 [xxx-ui-vty0-4]，
+    同一个会话里后续命令按基准提示符判定都会失败。
+
+    现场脚本参考：netmiko_SSH_device_system.py / netmiko_SSH.py 的
+    execute_commands_e1000。
+    """
+    enter, leave = get_e1000_sequence()
+    for c in enter:
+        try:
+            session.send_timing(c, timeout=min(timeout, 15))
+        except Exception:
+            pass
+    out = ""
+    try:
+        out = session.send(cmd, timeout=timeout)
+    finally:
+        for c in leave:
+            try:
+                session.send_timing(c, timeout=min(timeout, 15))
+            except Exception:
+                pass
+    return out

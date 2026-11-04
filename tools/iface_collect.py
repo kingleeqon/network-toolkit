@@ -20,6 +20,7 @@ from pathlib import Path
 
 from core.message import ItemStatus
 from core.tool_base import BaseTool, ParamSpec
+from infra.connector import run_e1000
 from infra.naming import device_stem, record_device_failure, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
                                  get_e1000, get_e1000_sequence, get_end_marker,
@@ -47,29 +48,6 @@ def archive_one(archive_root, device, text, day=None):
     write_text(path, text or "")
     return path
 
-
-def _run_e1000(session, cmd, timeout):
-    """华为 E1000 的采集流程：进 vty 关屏显 → 执行命令 → 还原。
-
-    现场脚本 netmiko_SSH_device_system.py 的 execute_commands_e1000。
-    这些命令没有可识别的结束标志，必须用 send_timing（不等提示符）。
-    """
-    enter, leave = get_e1000_sequence()
-    for c in enter:
-        try:
-            session.send_timing(c, timeout=min(timeout, 15))
-        except Exception:
-            pass
-    out = ""
-    try:
-        out = session.send(cmd, timeout=timeout)
-    finally:
-        for c in leave:
-            try:
-                session.send_timing(c, timeout=min(timeout, 15))
-            except Exception:
-                pass
-    return out
 
 
 class IfaceCollectTool(BaseTool):
@@ -157,7 +135,7 @@ class IfaceCollectTool(BaseTool):
             with ctx.open_session(dev, timeout=timeout, paging_cmd=paging) as session:
                 if get_e1000(dev.ip):
                     # 华为 E1000：普通关分屏不生效，要进 vty 改
-                    text = _run_e1000(session, cmd, timeout)
+                    text = run_e1000(session, cmd, timeout)
                 else:
                     text = session.send(cmd, timeout=timeout)
                 # 同一次会话里顺带把配置也取走，省一次登录
@@ -174,7 +152,7 @@ class IfaceCollectTool(BaseTool):
                             if get_e1000(dev.ip):
                                 # E1000 也要走 vty 关屏显那套（现场脚本
                                 # netmiko_SSH.py 的 execute_commands_e1000）
-                                cfg_text = _run_e1000(session, ccmd, timeout)
+                                cfg_text = run_e1000(session, ccmd, timeout)
                             else:
                                 cfg_text = session.send(ccmd, timeout=timeout,
                                                         end_marker=marker)

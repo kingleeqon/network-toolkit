@@ -17,6 +17,7 @@ from pathlib import Path
 
 from core.message import ItemStatus
 from core.tool_base import BaseTool, ParamSpec
+from infra.connector import run_e1000
 from infra.naming import device_stem, record_device_failure, write_text
 from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_label,
                                  get_e1000, get_e1000_sequence, get_end_marker,
@@ -25,28 +26,6 @@ from infra.vendor_profiles import (filter_supported, get_cmd, get_device_type_la
 # 回显长度低于此值视为疑似不完整（估算值，PRD FR-202）
 MIN_CONFIG_LENGTH = 100
 
-
-def _run_e1000(session, cmd, timeout):
-    """华为 E1000 的配置备份：进 vty 关屏显 → display current-configuration → 还原。
-
-    现场脚本 netmiko_SSH.py 的 execute_commands_e1000。
-    """
-    enter, leave = get_e1000_sequence()
-    for c in enter:
-        try:
-            session.send_timing(c, timeout=min(timeout, 15))
-        except Exception:
-            pass
-    out = ""
-    try:
-        out = session.send(cmd, timeout=timeout)
-    finally:
-        for c in leave:
-            try:
-                session.send_timing(c, timeout=min(timeout, 15))
-            except Exception:
-                pass
-    return out
 
 
 class BatchBackupTool(BaseTool):
@@ -119,7 +98,7 @@ class BatchBackupTool(BaseTool):
             paging = get_paging_cmd(dev.vendor, dev.ip, dev.hostname, for_backup=True)
             with ctx.open_session(dev, timeout=timeout, paging_cmd=paging) as session:
                 if get_e1000(dev.ip):
-                    text = _run_e1000(session, cmd, timeout)
+                    text = run_e1000(session, cmd, timeout)
                 else:
                     text = session.send(cmd, timeout=timeout, end_marker=marker)
             elapsed = int((time.time() - start) * 1000)

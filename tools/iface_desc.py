@@ -8,7 +8,8 @@ import re
 import time
 
 from core.tool_base import BaseTool, ParamSpec
-from infra.vendor_profiles import match_vendor
+from infra.connector import run_e1000
+from infra.vendor_profiles import get_e1000, match_vendor
 
 # 各厂商「接口描述」命令（key 为 match_vendor 归一后的标准厂商 key）
 # 取值对齐原 addInterfaceDes 脚本：烽火用 show interface（与 CRC 采集的
@@ -64,7 +65,12 @@ class IfaceDescTool(BaseTool):
                     ctx.log("厂商「%s」未收录接口描述命令，回退华为命令" % raw, level="WARN")
                 cmd = _DESC_CMDS["huawei"]
             with ctx.open_session(dev, timeout=timeout) as session:
-                text = session.send(cmd, timeout=timeout)
+                if get_e1000(dev.ip):
+                    # 华为 E1000 的 screen-length 0 temporary 不生效，
+                    # 不走进 vty 那套会被分页截断（现场脚本同样特殊处理）
+                    text = run_e1000(session, cmd, timeout)
+                else:
+                    text = session.send(cmd, timeout=timeout)
             return self._parse(text, dev)
 
         def row_worker(dev):

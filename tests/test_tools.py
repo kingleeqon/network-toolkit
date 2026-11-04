@@ -174,6 +174,14 @@ check("配置命令前重新进了 sys",
       True)
 check("E1000 也生成了 .cfg", len(list(Path(cfgdir3).rglob("*.cfg"))), 1)
 
+print("=== ⑦ 接口描述采集：E1000 同样要走 vty 序列 ===")
+import tools.iface_desc as ide
+res, logs, ctx, out = run(ide.IfaceDescTool(), "ok", E1000_DEV)
+print("   发出的命令序列:", ctx.cmds)
+check("描述采集也进 vty", "user-interface vty 0 4" in ctx.cmds, True)
+check("描述采集也关屏显", "screen-length 0" in ctx.cmds, True)
+check("描述采集收尾 return", "return" in ctx.cmds, True)
+
 print()
 if fails:
     print("[FAIL] %d 项不通过：%s" % (len(fails), "、".join(fails)))
