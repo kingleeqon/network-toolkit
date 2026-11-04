@@ -23,6 +23,25 @@ def write_summary(task_dir, summary):
     return path
 
 
+def write_rows(task_dir, columns, rows, statuses=None):
+    """把结果行落到 task_dir/result.json，供界面/定时任务回填结果表。
+
+    GUI 里跑任务时结果行走内存消息，定时任务是子进程，行不会回到界面——
+    落一份到磁盘，定时运行结束后界面读回来显示（否则结果表永远是空的）。
+    """
+    items = []
+    for i, row in enumerate(rows or []):
+        status = ""
+        if statuses and i < len(statuses):
+            status = statuses[i] or ""
+        items.append({"row": list(row), "status": str(status)})
+    path = Path(task_dir) / "result.json"
+    with open(str(path), "w", encoding="utf-8") as f:
+        json.dump({"columns": list(columns or []), "items": items},
+                  f, ensure_ascii=False, indent=2)
+    return path
+
+
 def export_rows(rows, columns, target_path):
     """导出结果表。xlsx 用 openpyxl，缺失则退化为 csv；csv 带 BOM 防 Excel 中文乱码。"""
     target = Path(target_path)

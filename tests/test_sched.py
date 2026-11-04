@@ -137,4 +137,23 @@ rows = ov.tree.get_children()
 print("   总览行数:", len(rows))
 for r in rows[:4]:
     print("     ", ov.tree.item(r, "values"))
+
+print("\n=== ⑥b 定时运行的结果行回填结果表 ===")
+# 定时是子进程跑的，结果行走不到界面消息，靠任务目录里的 result.json 回填
+mw.tool_tree.selection_set("demo_scan"); mw.on_select_tool()
+root.update_idletasks(); time.sleep(0.3); root.update()
+mw.scheduler.set_schedule("demo_scan", at="23:59", enabled=False,
+                          params={"count": 3, "concurrency": 2, "fail_rate": 0})
+mw.scheduler.run_now("demo_scan")
+_t0 = time.time()
+while time.time() - _t0 < 60:
+    root.update()
+    if (not mw.scheduler.is_running("demo_scan") and mw._sched_q.empty()
+            and time.time() - _t0 > 4):
+        break
+    time.sleep(0.05)
+_n = len(mw.result_view.rows)
+print("   结果表行数:", _n, "→ 期望 3", "PASS" if _n == 3 else "FAIL")
+print("   表格节点数:", len(mw.result_view.tree.get_children()),
+      "→ 期望 3", "PASS" if len(mw.result_view.tree.get_children()) == 3 else "FAIL")
 root.destroy()

@@ -13,7 +13,7 @@ from typing import Callable, Dict, List, Optional
 
 from core.errors import is_sensitive_key, map_fail_reason, redact_text
 from core.message import DRAIN_LIMIT_PER_TICK, ItemStatus, MsgType, STATUS_TEXT
-from core.result_writer import create_task_dirs, write_summary
+from core.result_writer import create_task_dirs, write_rows, write_summary
 from core.task_context import TaskContext
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ class TaskEngine:
         self.output_dir = None
         self.columns = []
         self.rows = []
+        self.row_statuses = []   # 与 rows 一一对应的状态（回填结果表要配色）
         self.stats = {"total": 0, "success": 0, "partial": 0, "fail": 0, "skipped": 0}
         self.fail_reason_count = {}
         self.output_base = output_base
@@ -61,6 +62,7 @@ class TaskEngine:
         self.task_id = uuid.uuid4().hex
         self.columns = list(getattr(tool, "result_columns", []))
         self.rows = []
+        self.row_statuses = []   # 与 rows 一一对应的状态（回填结果表要配色）
         self.stats = {"total": 0, "success": 0, "partial": 0, "fail": 0, "skipped": 0}
         self.fail_reason_count = {}
         self.cancel_event = threading.Event()
@@ -104,6 +106,7 @@ class TaskEngine:
                 self.rows.append(list(payload.get("row", [])))
                 status = payload.get("status")
                 status_value = getattr(status, "value", status)
+                self.row_statuses.append(status_value)
                 self.stats["total"] += 1
                 if status_value == ItemStatus.OK.value:
                     self.stats["success"] += 1
@@ -203,6 +206,9 @@ class TaskEngine:
         }
         try:
             write_summary(self.output_dir, summary)
+            # 结果行也落盘：定时任务是子进程，行不会回到界面
+            write_rows(self.output_dir, self.columns, self.rows,
+                       self.row_statuses)
             self._write_audit(summary)
         except Exception as exc:
             self._emit(MsgType.LOG, {"level": "ERROR", "msg": "结果落盘失败：%s" % exc})

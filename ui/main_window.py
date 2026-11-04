@@ -531,11 +531,17 @@ class MainWindow(object):
                 level = m.group(1)
             entries.append((level, ln))
         summary = self._build_sched_summary(key, flag, code, output_dir, run_at)
+        columns, rows = self._load_sched_rows(output_dir)
 
         if self.current_tool is not None and self.current_tool.id == key:
             for level, text in entries:
                 self.log_view.append(level, text)
             self._set_summary_text(summary)
+            if rows:
+                # 结果表也要回填：定时是子进程跑的，结果行不会走界面消息
+                self.result_view.set_columns(columns or self.result_view.columns)
+                self.result_view.rows = rows
+                self.result_view.refresh()
             self._save_outputs()
         else:
             # 用户在看别的工具：进缓存，切过去时 _restore_outputs 会带出来
@@ -547,6 +553,27 @@ class MainWindow(object):
                 self._output_cache[key] = cached
             cached["logs"] = list(cached.get("logs") or []) + entries
             cached["summary"] = summary
+            if rows:
+                cached["columns"] = columns or cached.get("columns") or []
+                cached["rows"] = rows
+
+    def _load_sched_rows(self, output_dir):
+        """读定时运行落盘的 result.json → (columns, [(row, status), ...])。
+
+        界面里跑任务时结果行走内存消息；定时任务是子进程，行只落在自己的
+        结果目录里，不读回来结果表就是空的。
+        """
+        if not output_dir:
+            return [], []
+        try:
+            data = json.loads((Path(output_dir) / "result.json").read_text(encoding="utf-8"))
+        except Exception:
+            return [], []
+        columns = list(data.get("columns") or [])
+        rows = []
+        for item in data.get("items") or []:
+            rows.append((list(item.get("row") or []), item.get("status") or "OK"))
+        return columns, rows
 
     def _build_sched_summary(self, key, flag, code, output_dir, run_at):
         title = self.scheduler.title_of(key) if self.scheduler else key
