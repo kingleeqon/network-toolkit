@@ -92,7 +92,16 @@ def export_rows(rows, columns, target_path):
 
 
 def app_data_dir():
-    """配置/凭证/日志目录（PRD 15.6.9）。"""
+    """配置/凭证/日志目录（PRD 15.6.9）。
+
+    可用环境变量 NETWORK_TOOLKIT_DATA 覆盖（测试隔离用，也方便绿色版把
+    审计日志/凭证放到指定目录，不污染当前用户的 %APPDATA%）。
+    """
+    override = os.environ.get("NETWORK_TOOLKIT_DATA", "").strip()
+    if override:
+        path = Path(override)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
     path = Path(base) / "NetworkToolkit"
     path.mkdir(parents=True, exist_ok=True)
