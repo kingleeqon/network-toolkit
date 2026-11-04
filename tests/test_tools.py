@@ -206,25 +206,44 @@ try:
 except ConfigError as exc:
     check("缺参抛 ConfigError", "请先选择" in str(exc), True)
 
-print("=== ⑨ CRC 对比：结果另存到指定目录 ===")
+print("=== ⑨ CRC 对比：结果另存 + 备注列（差值>1000 填接口描述）===")
 _root = Path(tempfile.mkdtemp())
-for _d, _crc_val in (("2026-11-03", 3), ("2026-11-04", 7)):
+for _d, _big, _small in (("2026-11-03", 3, 10), ("2026-11-04", 2503, 12)):
     (_root / _d).mkdir()
     (_root / _d / "DEV1.log").write_bytes(
-        ("zte_zxros\r\n\r\nxge-0/1/1/1 is administratively down\r\n"
-         "  In_CRC_ERROR %d\r\n" % _crc_val).encode("utf-8"))
+        ("zte_zxros\r\n\r\n"
+         "xge-0/1/1/1 is administratively down\r\n"
+         "  Description: TO-[CORE-SW]-10G-1.1.1.1\r\n"
+         "  In_CRC_ERROR %d\r\n"
+         "xge-0/1/1/2 is administrativly up\r\n"
+         "  Description: TO-[EDGE]-1G-2.2.2.2\r\n"
+         "  In_CRC_ERROR %d\r\n" % (_big, _small)).encode("utf-8"))
 _out = Path(tempfile.mkdtemp())
 _msgs = []
 _ctx = FakeCtx("ok", Path(tempfile.mkdtemp()), [])
 _ctx._emit = lambda t, p: _msgs.append((t, p))
 _crc.run({"auto_root": str(_root), "out_dir": str(_out)}, _ctx,
-         lambda *a, **k: None)
+         lambda t, p: _msgs.append((t, p)))
 _saved = list(_out.glob("CRC对比_*.xlsx"))
 print("   另存文件:", [p.name for p in _saved])
 check("另存到指定目录", len(_saved), 1)
 check("文件名带日期", _saved and _saved[0].name, "CRC对比_2026-11-04.xlsx")
 _logs = [p["msg"] for t, p in _msgs if getattr(t, "value", t) == "log"]
 check("日志里有另存路径", any("结果已另存" in m for m in _logs), True)
+
+# 备注列：差值 2500 > 1000 带接口描述；差值 2 不带
+_rows = [p["row"] for t, p in _msgs if getattr(t, "value", t) == "result"]
+_by_iface = {r[1]: r for r in _rows}
+print("   结果行:", [(r[1], r[4], r[6]) for r in _rows])
+check("结果表 9 列", len(_rows[0]) == 9, True)
+check("大差值带描述", _by_iface["xge-0/1/1/1"][6],
+      "TO-[CORE-SW]-10G-1.1.1.1")
+check("小差值备注为空", _by_iface["xge-0/1/1/2"][6], "")
+import pandas as _pd
+_cols = list(_pd.read_excel(_saved[0]).columns)
+print("   Excel 列顺序:", _cols)
+check("Excel 有备注列", "备注" in _cols, True)
+check("Excel 日期在最后", _cols[-1], "日期")
 
 print()
 if fails:

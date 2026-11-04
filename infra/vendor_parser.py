@@ -324,3 +324,51 @@ def extract_crc_info(content, vendor=None):
     if current and current not in crc_info:
         crc_info[current] = 0
     return crc_info
+
+
+# 接口描述：各行格式基本都是 "Description: xxx"（华三/华为/中兴/锐捷/烽火/迪普都认）
+_DESC_RE = re.compile(r"^\s*(?:Description|description|描述)\s*[:：]\s*(.+?)\s*$")
+
+# 没配描述时各厂商的占位值，以及华三那种自动生成的 "<接口名> Interface"
+_DESC_PLACEHOLDERS = {"NO_USE", "NONE", "NULL", "-", "--", "/", ""}
+
+
+def _clean_desc(value, iface):
+    """过滤占位描述（NO_USE / 华三的「<接口名> Interface」等）。"""
+    text = (value or "").strip()
+    if text.upper() in _DESC_PLACEHOLDERS:
+        return ""
+    if text.lower() == ("%s interface" % iface).lower():
+        return ""
+    return text
+
+
+def extract_interface_desc(content, vendor=None):
+    """按接口提取描述，返回 {接口名: 描述}（没配描述的接口不出现在结果里）。
+
+    复用 extract_crc_info 的接口识别规则，取每个接口块里第一处
+    Description 行；占位值（NO_USE、华三默认的「X Interface」）会被过滤掉。
+    """
+    vendor = (vendor or detect_vendor(content)).lower()
+    if vendor not in _INTERFACE_PATTERNS:
+        return {}
+    iface_pattern = _INTERFACE_PATTERNS[vendor]
+    out = {}
+    current = None
+    for line in (content or "").split("\n"):
+        s = line.strip()
+        m = (re.search(iface_pattern, s) if vendor in ("fiberhome", "dptech")
+             else re.match(iface_pattern, s))
+        if m:
+            current = m.group(1)
+            if vendor == "ruijie":
+                current = current.replace(" ", "")
+            continue
+        if current and current not in out:
+            hit = _DESC_RE.match(s)
+            if hit:
+                desc = _clean_desc(hit.group(1), current)
+                if desc:
+                    out[current] = desc
+                current = None
+    return out

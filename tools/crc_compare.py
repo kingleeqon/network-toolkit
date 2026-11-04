@@ -13,7 +13,8 @@ from pathlib import Path
 
 from core.errors import ConfigError
 from core.tool_base import BaseTool, ParamSpec
-from infra.vendor_parser import detect_vendor, extract_crc_info
+from infra.vendor_parser import (detect_vendor, extract_crc_info,
+                                 extract_interface_desc)
 
 # 厂商中文名
 _VENDOR_NAMES = {
@@ -26,7 +27,12 @@ _VENDOR_NAMES = {
 _MAX_RESULT_ROWS = 5000
 
 # Excel 落盘列（比结果表多一列「日期」，供趋势分析按天累积）
-_EXCEL_COLUMNS = ["日期", "设备名称", "接口名称", "今日CRC值", "昨日CRC值", "CRC差值", "厂商"]
+# Excel 落盘列（日期放最后：界面/Excel 打开先看数据，趋势分析按列名取日期不受影响）
+_EXCEL_COLUMNS = ["设备名称", "接口名称", "今日CRC值", "昨日CRC值", "CRC差值", "厂商",
+                  "备注", "日期"]
+
+# CRC 差值超过这个值才在「备注」里写上接口描述（方便直接看出是哪个口出问题）
+REMARK_CRC_DIFF = 1000
 
 
 def _guess_date(dir_path):
@@ -79,7 +85,8 @@ class CrcCompareTool(BaseTool):
                        "同日重复运行会覆盖）；任务目录里始终保留一份"),
     ]
 
-    result_columns = ["设备名称", "接口名称", "今日CRC值", "昨日CRC值", "CRC差值", "厂商", "状态", "失败原因"]
+    result_columns = ["设备名称", "接口名称", "今日CRC值", "昨日CRC值", "CRC差值", "厂商",
+                      "备注", "状态", "失败原因"]
 
     # 本工具只产出结果表，无需图表标签页
     output_tabs = ["result", "log", "summary"]
@@ -114,7 +121,8 @@ class CrcCompareTool(BaseTool):
                 pass
             rows.append([r.get("设备名称", ""), r.get("接口名称", ""),
                          r.get("今日CRC值", 0), r.get("昨日CRC值", 0),
-                         diff, r.get("厂商", ""), "成功", ""])
+                         diff, r.get("厂商", ""), r.get("备注", "") or "",
+                         "成功", ""])
         to_num = lambda x: abs(float(x)) if isinstance(x, (int, float)) else 0
         rows.sort(key=lambda row: to_num(row[4]), reverse=True)
         return list(self.result_columns), rows[:_MAX_RESULT_ROWS]
@@ -188,13 +196,19 @@ class CrcCompareTool(BaseTool):
             vendor = detect_vendor(text2)
             vendor_stats[vendor] = vendor_stats.get(vendor, 0) + 1
 
+            # 接口描述：差值异常时写进「备注」，方便直接看出是哪个口
+            descs = extract_interface_desc(text2, vendor)
             all_ifaces = set(c2.keys()) | set(c1.keys())
             for iface in sorted(all_ifaces):
                 today = c2.get(iface, 0)
                 yesterday = c1.get(iface, 0)
-                # 结果表行（8 列，供 GUI 展示）
-                results.append([device_name, iface, today, yesterday,
-                                today - yesterday, _VENDOR_NAMES.get(vendor, vendor), "", ""])
+                diff = today - yesterday
+                remark = ""
+                if abs(diff) > REMARK_CRC_DIFF:
+                    remark = descs.get(iface, "")
+                # 结果表行（9 列，供 GUI/Excel 展示）
+                results.append([device_name, iface, today, yesterday, diff,
+                                _VENDOR_NAMES.get(vendor, vendor), remark, "", ""])
             processed += 1
 
         out = self._write_excel(results, date_str, ctx)
@@ -265,7 +279,7 @@ class CrcCompareTool(BaseTool):
         if not rows:
             return None
         # Excel 落盘 7 列（含日期），去掉「状态」「失败原因」两列框架占位
-        data = [[date_str, r[0], r[1], r[2], r[3], r[4], r[5]] for r in rows]
+        data = [[r[0], r[1], r[2], r[3], r[4], r[5], r[6], date_str] for r in rows]
         df = pd.DataFrame(data, columns=_EXCEL_COLUMNS)
         df.sort_values(["设备名称", "接口名称"], inplace=True)
         try:
