@@ -171,8 +171,13 @@ class IfaceCollectTool(BaseTool):
                         marker = get_end_marker(dev.vendor, "config",
                                                  device_name=dev.hostname)
                         try:
-                            cfg_text = session.send(ccmd, timeout=timeout,
-                                                   end_marker=marker)
+                            if get_e1000(dev.ip):
+                                # E1000 也要走 vty 关屏显那套（现场脚本
+                                # netmiko_SSH.py 的 execute_commands_e1000）
+                                cfg_text = _run_e1000(session, ccmd, timeout)
+                            else:
+                                cfg_text = session.send(ccmd, timeout=timeout,
+                                                        end_marker=marker)
                             if marker and marker not in (cfg_text or ""):
                                 ctx.log("%s 配置里没有结束标记 %s，配置可能没采全"
                                         % (dev.ip, marker), level="WARN", ip=dev.ip)

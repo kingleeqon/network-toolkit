@@ -38,6 +38,11 @@ class FakeSession(object):
     def __exit__(self, *exc):
         return False
 
+    def send_timing(self, cmd, timeout=10):
+        # 真会话有这个方法（E1000 序列用它发 sys / user-interface 等）
+        self.log.append(cmd)
+        return ""
+
     def send(self, cmd, timeout=30, end_marker=None):
         self.log.append(cmd)
         if self.mode == "connect_fail":
@@ -146,6 +151,28 @@ err_logs2 = list(Path(archivedir2).rglob("error_log.txt"))
 check("配置备份也生成 error_log.txt", len(err_logs2), 1)
 check("配置备份没有生成半截 .cfg",
       len(list(Path(archivedir2).rglob("*.cfg"))), 0)
+
+print("=== ⑥ 华为 E1000：接口和配置都要走 vty 关屏显序列 ===")
+# 现场反馈：E1000 采接口正常，但同会话备份配置报 Pattern not detected。
+# 根因是配置命令在 undo screen-length 之后才发（分页已恢复、提示符又变了）。
+E1000_DEV = [Device(ip="10.185.2.3", hostname="TTOA-BS-2-4F-B08-E1000E-01",
+                    vendor="huawei", credential_ref="x")]
+cfgdir3 = tempfile.mkdtemp()
+res, logs, ctx, out = run(ic.IfaceCollectTool(), "ok", E1000_DEV,
+                          {"backup_config": True, "backup_dir": cfgdir3})
+cmds = ctx.cmds
+print("   发出的命令序列:", cmds)
+check("接口命令前有 sys", cmds[0], "sys")
+check("进了 vty", cmds[1], "user-interface vty 0 4")
+check("关了屏显", cmds[2], "screen-length 0")
+check("收尾回到用户视图", "return" in cmds, True)
+# 配置命令必须也夹在 vty 序列里（它前面还得再有一次 sys）
+idx_cfg = next((i for i, c in enumerate(cmds) if "current-configuration" in c), -1)
+check("配置命令在序列里", idx_cfg > 0, True)
+check("配置命令前重新进了 sys",
+      cmds[idx_cfg - 3:idx_cfg] == ["sys", "user-interface vty 0 4", "screen-length 0"],
+      True)
+check("E1000 也生成了 .cfg", len(list(Path(cfgdir3).rglob("*.cfg"))), 1)
 
 print()
 if fails:

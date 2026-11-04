@@ -6,13 +6,13 @@
     "config": "D:\\test\\object\\BackupConifg\\netmiko_SSH.py"
   },
   "e1000": {
-    "_note": "华为 E1000：普通 screen-length 0 temporary 不生效，要进 vty 改",
+    "_note": "华为 E1000：普通 screen-length 0 temporary 不生效，要进 vty 改。exit 必须先 undo screen-length 再 return 回用户视图——否则会话停在 [xxx-ui-vty0-4] 视图，后续命令按基准提示符判定会报 Pattern not detected",
     "ips": [
       "10.185.2.3", "10.185.2.4", "172.24.249.34",
       "172.24.252.58", "10.182.250.15", "10.182.250.16"
     ],
     "enter": ["sys", "user-interface vty 0 4", "screen-length 0"],
-    "exit": ["undo screen-length"]
+    "exit": ["undo screen-length", "return"]
   },
   "vendors": {
     "huawei": {
