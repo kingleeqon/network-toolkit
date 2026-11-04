@@ -9,9 +9,11 @@
 """
 import argparse
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from core.exit_codes import CLI_FAILED, CLI_OK, CLI_PARTIAL
@@ -23,9 +25,58 @@ sys.path.insert(0, str(BASE_DIR))
 APP_VERSION = "0.1.0"
 
 
+_LOG_READY = False
+
+
+def _prune_app_logs(log_dir, keep_days=30):
+    """删掉过期的 app_*.log / daily_crc_*.log，避免常年堆积。"""
+    try:
+        cutoff = time.time() - keep_days * 86400
+        for path in log_dir.glob("*.log*"):
+            if not (path.name.startswith("app_") or path.name.startswith("daily_crc_")):
+                continue
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+    except Exception:
+        pass
+
+
 def _setup_logging():
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    """根日志：控制台 + logs/app_YYYYMMDD.log（按天切分，保留 30 天）。
+
+    双击/快捷方式启动时没有控制台，若只配控制台 handler，logger 的输出
+    （工具加载失败、定时配置写入失败、批次级异常）会直接丢掉，现场无从查起。
+    重复调用是幂等的，不会重复挂 handler。
+    """
+    global _LOG_READY
+    if _LOG_READY:
+        return
+    _LOG_READY = True
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    try:
+        log_dir = BASE_DIR / "logs"
+        log_dir.mkdir(exist_ok=True)
+        # 固定 app.log，按天切分备份（app.log.20261104），保留 30 天：
+        # 现场只要认准 logs/app.log 一个路径
+        fh = TimedRotatingFileHandler(str(log_dir / "app.log"), when="midnight",
+                                      backupCount=30, encoding="utf-8")
+        fh.suffix = "%Y%m%d"
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
+        _prune_app_logs(log_dir)
+    except Exception as exc:
+        print("[WARN] 日志文件打开失败，本进程只输出到控制台：%s" % exc,
+              file=sys.stderr)
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    root.addHandler(sh)
+    logging.getLogger("app").info(
+        "启动 v%s｜Python %s｜%s｜pid=%s",
+        APP_VERSION, sys.version.split()[0], BASE_DIR, os.getpid())
 
 
 def list_tools():
@@ -246,6 +297,9 @@ def main():
     parser.add_argument("--cli", metavar="TOOL_ID", help="无界面运行指定工具")
     parser.add_argument("cli_args", nargs="*", help="--cli 参数，格式 key=value")
     args = parser.parse_args()
+
+    # 统一在入口配日志：GUI 路径原先没有文件 handler，双击启动时日志全丢
+    _setup_logging()
 
     if args.list_tools:
         return list_tools()

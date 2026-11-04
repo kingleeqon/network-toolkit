@@ -28,6 +28,20 @@ python tests/run_all.py                      # 跑全部回归脚本（仅开发
 首次建议先跑 `--selftest`：它用内置的**演示工具**（不连真实设备）跑完整链路，
 输出形如 `✅ 自检通过：全链路可跑通（队列/并发/失败隔离/落盘/清单导入）`。
 
+### 日志在哪
+
+| 想知道什么 | 看哪里 |
+|---|---|
+| 整个程序跑过什么、有没有报错 | **`logs/app.log`**（按天切分备份 `app.log.YYYYMMDD`，保留 30 天） |
+| 某一次运行为什么失败 | `output/<工具id>/<时间戳>_<任务id>/run.log`（+ `error.log` / `summary.json`） |
+| 全局跑过哪些任务（审计） | `%APPDATA%\NetworkToolkit\audit.log`（每行一条 JSON） |
+| 每日流水线 | `logs/daily_crc_YYYYMMDD.log` |
+| 定时任务实时输出 | 界面「运行日志」标签（子进程自身的日志仍写在自己的任务目录） |
+| 设备侧采集/备份产物 | 你配置的归档目录：`<根>/<日期>/<设备>.log` / `.cfg` / `error_log.txt` |
+
+`logs/` 与 `output/` 都不入库；`app.log` 在**双击启动（无控制台）**时同样会记录，
+这是现场排查的第一入口。
+
 ### 每日自动跑「接口采集 + 配置备份 + CRC 对比」
 
 工具本身没有内置定时器，用 `scripts/daily_crc.py` + Windows 计划任务串成一条链。
