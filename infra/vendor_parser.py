@@ -287,8 +287,19 @@ def _match_crc(line, vendor):
     return None
 
 
+# 单个接口块最多扫多少行（兜底，防止某台设备回显异常大把整份日志扫穿）。
+# 正常应以「下一个接口行」为界；这里只是安全阀，不要当作业务窗口用。
+MAX_BLOCK_LINES = 600
+
+
 def extract_crc_info(content, vendor=None):
-    """按接口提取 CRC 值，返回 {接口名: crc值}（ALL_CHECK_CRC-2.py 逻辑）。"""
+    """按接口提取 CRC 值，返回 {接口名: crc值}（ALL_CHECK_CRC-2.py 逻辑）。
+
+    扫描范围是「当前接口行 → 下一个接口行」，不再用固定行数窗口：
+    中兴 9916X/9908X 的 CRC 行在第 52~53 行、锐捷个别型号在 43~45 行，
+    原先 40 行的窗口会直接放弃 → 整型号 CRC 全读成 0（现场反馈的
+    「个别厂商型号 CRC 错误」就是这个）。
+    """
     vendor = (vendor or detect_vendor(content)).lower()
     if vendor not in _INTERFACE_PATTERNS:
         return {}
@@ -297,7 +308,6 @@ def extract_crc_info(content, vendor=None):
     crc_info = {}
     current = None
     scan = 0
-    max_scan = 60 if vendor in ("fiberhome", "dptech") else 40
 
     for line in lines:
         s = line.strip()
@@ -310,17 +320,19 @@ def extract_crc_info(content, vendor=None):
                 current = current.replace(" ", "")
             scan = 0
             continue
-        if current and scan < max_scan:
-            val = _match_crc(s, vendor)
-            if val is not None:
-                crc_info[current] = val
-                current = None
-                scan = 0
-            else:
-                scan += 1
-                if scan >= max_scan:
-                    crc_info[current] = 0
-                    current = None
+        if not current:
+            continue
+        scan += 1
+        val = _match_crc(s, vendor)      # 命中即取（同一块只认第一处）
+        if val is not None:
+            crc_info[current] = val
+            current = None
+            scan = 0
+            continue
+        if scan >= MAX_BLOCK_LINES:
+            crc_info[current] = 0
+            current = None
+            scan = 0
     if current and current not in crc_info:
         crc_info[current] = 0
     return crc_info
