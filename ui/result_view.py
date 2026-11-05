@@ -22,9 +22,26 @@ from typing import Any, Dict, List, Optional, Tuple
 
 FILTERS = ["全部", "成功", "失败"]
 
+
+def _shift_color(hex_color, pct=0.06):
+    """把颜色按亮度微调：深底提亮、浅底加深，用来做斑马纹。"""
+    try:
+        c = str(hex_color or "").lstrip("#")
+        if len(c) == 3:
+            c = "".join(ch * 2 for ch in c)
+        if len(c) < 6:
+            return hex_color
+        r, g, b = (int(c[i:i + 2], 16) for i in (0, 2, 4))
+        lum = 0.299 * r + 0.587 * g + 0.114 * b
+        delta = int(255 * pct) * (1 if lum < 128 else -1)
+        r, g, b = (max(0, min(255, v + delta)) for v in (r, g, b))
+        return "#%02x%02x%02x" % (r, g, b)
+    except Exception:
+        return hex_color
+
 # 表格字号（与主窗口的显示字号同步，两侧常量保持一致）
 MIN_FONT_SIZE = 8
-MAX_FONT_SIZE = 22
+MAX_FONT_SIZE = 32
 DEFAULT_FONT_SIZE = 12
 
 # 单帧渲染上限：超过后转批量刷新，避免逐行 insert 拖慢主线程
@@ -42,8 +59,12 @@ class ResultView(object):
 
         self._build_toolbar()
 
+        # 注意：ttkbootstrap 的 Treeview 带 bootstyle 时会用自己的样式名，
+        # 把传进来的 style 覆盖掉 —— 必须在创建后再显式挂一次，
+        # 否则 Result.Treeview 里的字号/行高永远不生效（「字调不大」的根因）。
         self.tree = ttk.Treeview(self.frame, columns=self.columns, show="headings",
                                  height=12, bootstyle="primary", style="Result.Treeview")
+        self.tree.configure(style="Result.Treeview")
         self._font_size = DEFAULT_FONT_SIZE
         self._fit_w = 0
         self.tree.bind("<Configure>", self._on_tree_configure)
@@ -189,6 +210,15 @@ class ResultView(object):
         except Exception:
             fail_fg = "#c0392b"
         self.tree.tag_configure("fail", foreground=fail_fg)
+        # 斑马纹：隔行浅色底，长表格不容易看错行
+        try:
+            style = ttk.Style()
+            base = (style.lookup("Result.Treeview", "background")
+                    or style.lookup("Treeview", "background")
+                    or style.colors.bg)
+            self.tree.tag_configure("zebra", background=_shift_color(base, 0.07))
+        except Exception:
+            pass
 
     def set_font_size(self, size):
         """调整表格字号（同时放大行高，避免文字被裁切）。
@@ -200,10 +230,16 @@ class ResultView(object):
             family = "Microsoft YaHei UI"
             style = ttk.Style()
             style.configure("Result.Treeview", font=(family, size),
-                            rowheight=int(size * 2.1))
+                            rowheight=int(size * 2.2))
             style.configure("Result.Treeview.Heading", font=(family, size, "bold"))
         except Exception:
             pass
+        # 再挂一次样式：主题切换/控件重建后 style 可能被重置回去
+        try:
+            self.tree.configure(style="Result.Treeview")
+        except Exception:
+            pass
+        self.refresh_tag_colors()      # 背景色随主题/样式变化，斑马纹跟着重算
         # 字号变了文字宽度也变，列宽得重算
         self.autofit_columns()
 
@@ -225,10 +261,16 @@ class ResultView(object):
         if len(self.rows) > BATCH_LIMIT:
             self.refresh()
             return
-        self._insert(list(row), status)
+        self._insert(list(row), status, len(self.rows) - 1)
 
-    def _insert(self, row, status):
-        tags = ("fail",) if status not in ("OK", "PARTIAL_OK") else ()
+    def _insert(self, row, status, idx=0):
+        # 失败行优先用红字；其余隔行加底色
+        if status not in ("OK", "PARTIAL_OK"):
+            tags = ("fail",)
+        elif idx % 2 == 1:
+            tags = ("zebra",)
+        else:
+            tags = ()
         try:
             self.tree.insert("", "end", values=row, tags=tags)
         except Exception:
@@ -240,8 +282,8 @@ class ResultView(object):
         for item in self.tree.get_children():
             self.tree.delete(item)
         shown = self._filtered()
-        for row, status in shown:
-            self._insert(row, status)
+        for i, (row, status) in enumerate(shown):
+            self._insert(row, status, i)
 
         if self.rows:
             self.count_label.configure(text="共 %d 行（显示 %d 行）" % (len(self.rows), len(shown)))

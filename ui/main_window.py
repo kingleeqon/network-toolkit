@@ -69,7 +69,7 @@ PREF_PATH = os.path.join(os.path.expanduser("~"), ".network_toolkit_ui.json")
 
 BASE_FONT_SIZE = 12          # 图表/表格的基准字号（字号设置以此为 1.0 比例）；中文 12 号起看得清
 MIN_FONT_SIZE = 8
-MAX_FONT_SIZE = 22
+MAX_FONT_SIZE = 32
 OUTPUT_MIN_H = 340           # 自动贴合时输出区（图表/结果表）保底高度
 OUTPUT_MIN_H_USER = 200      # 用户手动拖过分隔条后，输出区只需保底这么多
 
