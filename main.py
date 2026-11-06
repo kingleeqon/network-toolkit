@@ -41,10 +41,27 @@ def _prune_app_logs(log_dir, keep_days=30):
         pass
 
 
-def _setup_logging():
-    """根日志：控制台 + logs/app_YYYYMMDD.log（按天切分，保留 30 天）。
+class _SafeRotatingFileHandler(TimedRotatingFileHandler):
+    """轮转/写入失败时静默跳过的文件日志。
 
-    双击/快捷方式启动时没有控制台，若只配控制台 handler，logger 的输出
+    Windows 上轮转是「改名 app.log → app.log.20261105」，若有别的进程
+    （比如手动又开了一个工具箱实例）还握着旧句柄，改名会抛 WinError 32。
+    默认行为是把整段「Logging error」堆栈打到 stderr —— 定时任务的运行
+    日志面板会瞬间刷满。这里改成跳过本轮轮转继续写，现场日志不再刷屏。
+    """
+
+    def handleError(self, record):
+        pass
+
+
+def _setup_logging(cli_mode=False):
+    """根日志：控制台 + logs/app.log（按天切分，保留 30 天）。
+
+    cli_mode=True（定时任务的子进程）不挂共享文件日志：
+        1. 子进程的 stdout/stderr 已被调度器接进界面「运行日志」，够查了；
+        2. 多个进程同时握着 app.log，跨天轮转时改名必冲突（WinError 32），
+           这是现场「运行日志刷满 PermissionError」的根因。
+    双击/快捷方式启动 GUI 时没有控制台，若只配控制台 handler，logger 的输出
     （工具加载失败、定时配置写入失败、批次级异常）会直接丢掉，现场无从查起。
     重复调用是幂等的，不会重复挂 handler。
     """
@@ -57,26 +74,28 @@ def _setup_logging():
     root.setLevel(logging.INFO)
     for h in list(root.handlers):
         root.removeHandler(h)
-    try:
-        log_dir = BASE_DIR / "logs"
-        log_dir.mkdir(exist_ok=True)
-        # 固定 app.log，按天切分备份（app.log.20261104），保留 30 天：
-        # 现场只要认准 logs/app.log 一个路径
-        fh = TimedRotatingFileHandler(str(log_dir / "app.log"), when="midnight",
-                                      backupCount=30, encoding="utf-8")
-        fh.suffix = "%Y%m%d"
-        fh.setFormatter(fmt)
-        root.addHandler(fh)
-        _prune_app_logs(log_dir)
-    except Exception as exc:
-        print("[WARN] 日志文件打开失败，本进程只输出到控制台：%s" % exc,
-              file=sys.stderr)
+    if not cli_mode:
+        try:
+            log_dir = BASE_DIR / "logs"
+            log_dir.mkdir(exist_ok=True)
+            # 固定 app.log，按天切分备份（app.log.20261104），保留 30 天：
+            # 现场只要认准 logs/app.log 一个路径
+            fh = _SafeRotatingFileHandler(str(log_dir / "app.log"), when="midnight",
+                                          backupCount=30, encoding="utf-8")
+            fh.suffix = "%Y%m%d"
+            fh.setFormatter(fmt)
+            root.addHandler(fh)
+            _prune_app_logs(log_dir)
+        except Exception as exc:
+            print("[WARN] 日志文件打开失败，本进程只输出到控制台：%s" % exc,
+                  file=sys.stderr)
     sh = logging.StreamHandler()
     sh.setFormatter(fmt)
     root.addHandler(sh)
     logging.getLogger("app").info(
-        "启动 v%s｜Python %s｜%s｜pid=%s",
-        APP_VERSION, sys.version.split()[0], BASE_DIR, os.getpid())
+        "启动 v%s｜Python %s｜%s｜pid=%s｜mode=%s",
+        APP_VERSION, sys.version.split()[0], BASE_DIR, os.getpid(),
+        "cli" if cli_mode else "gui")
 
 
 def list_tools():
@@ -298,8 +317,9 @@ def main():
     parser.add_argument("cli_args", nargs="*", help="--cli 参数，格式 key=value")
     args = parser.parse_args()
 
-    # 统一在入口配日志：GUI 路径原先没有文件 handler，双击启动时日志全丢
-    _setup_logging()
+    # 统一在入口配日志：GUI 路径原先没有文件 handler，双击启动时日志全丢；
+    # --cli 子进程走 cli_mode，不再和主程序抢 logs/app.log（跨天轮转冲突）
+    _setup_logging(cli_mode=bool(args.cli))
 
     if args.list_tools:
         return list_tools()

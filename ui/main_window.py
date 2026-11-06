@@ -17,6 +17,7 @@ import json
 import os
 import queue
 import re
+import threading
 import tkinter as tk
 import ttkbootstrap as ttk
 from pathlib import Path
@@ -507,6 +508,8 @@ class MainWindow(object):
                         self._append_scheduler_log(item[1])
                     elif item[0] == "status":
                         self._apply_sched_status()
+                    elif item[0] == "result_files":
+                        self._apply_result_files(item[1], item[2])
                     elif item[0] == "done":
                         self._apply_sched_run(*item[1:])
                 except Exception:
@@ -1067,24 +1070,57 @@ class MainWindow(object):
         self._refresh_result_files()
 
     def _refresh_result_files(self):
-        """重新扫描结果输出目录，刷新文件列表。"""
+        """重新扫描结果输出目录，刷新文件列表。
+
+        扫盘放后台线程：结果输出目录很可能是共享盘/网络盘，glob 一卡就是
+        几秒，主线程等它就是「切个工具就无响应」。扫完经 _sched_q 回主线程
+        渲染（工作线程禁止碰 Tk，见 _on_scheduler_log 注释）。
+        """
         lb = getattr(self, "_files_list", None)
         if lb is None:
             return
         self._result_files = []
         try:
             lb.delete(0, "end")
+            lb.insert("end", "（正在扫描目录…）")
         except Exception:
             return
         folder = self._result_files_folder()
         self._files_folder_last = folder
         if not folder:
-            lb.insert("end", "（先在参数里填「结果输出目录」）")
+            try:
+                lb.delete(0, "end")
+                lb.insert("end", "（先在参数里填「结果输出目录」）")
+            except Exception:
+                pass
+            return
+        tool = self.current_tool          # 捕获引用，线程里不再碰界面状态
+        self._files_scan_id = getattr(self, "_files_scan_id", 0) + 1
+        scan_id = self._files_scan_id
+
+        def _scan():
+            try:
+                files = tool.list_result_files(folder) or []
+            except Exception:
+                files = []
+            try:
+                self._sched_q.put(("result_files", scan_id, list(files)))
+            except Exception:
+                pass
+
+        threading.Thread(target=_scan, daemon=True, name="scan-result-files").start()
+
+    def _apply_result_files(self, scan_id, files):
+        """后台扫描完成后回填历史结果列表（主线程）。"""
+        if scan_id != getattr(self, "_files_scan_id", 0):
+            return                          # 过期结果（目录又变了/已切换工具）
+        lb = getattr(self, "_files_list", None)
+        if lb is None:
             return
         try:
-            files = self.current_tool.list_result_files(folder) or []
+            lb.delete(0, "end")
         except Exception:
-            files = []
+            return
         if not files:
             lb.insert("end", "（目录里还没有结果文件）")
             return

@@ -258,10 +258,17 @@ class ResultView(object):
 
     def add_row(self, row, status):
         self.rows.append((list(row), status))
-        if len(self.rows) > BATCH_LIMIT:
+        # 筛选=全部时视图里就是全量行，直接插单行即可；
+        # 原先「超过 BATCH_LIMIT 就整表 refresh」是 O(n²)：
+        # 大清单（几千台设备）跑到后段每一行都触发全量重刷，界面越来越卡
+        if self._filter_var.get() != "全部":
             self.refresh()
             return
         self._insert(list(row), status, len(self.rows) - 1)
+        if len(self.rows) % 200 == 0:
+            self.count_label.configure(
+                text="共 %d 行（显示 %d 行）" % (len(self.rows), len(self.rows)))
+            self.empty_label.pack_forget()
 
     def _insert(self, row, status, idx=0):
         # 失败行优先用红字；其余隔行加底色
