@@ -111,6 +111,18 @@ class CrcCompareTool(BaseTool):
         """
         import pandas as pd
         df = pd.read_excel(path)
+        # 空单元格（如差值没超 1000 的行备注为空）会被 pandas 读成 NaN，
+        # 且 NaN 是真值，后面的 `or ""` 拦不住 —— 不清掉界面上就显示成 "nan"
+        df = df.fillna("")
+
+        def _num(x):
+            # 整数列若混过空值会变 float，读回来带 .0，显示前归一成整数
+            try:
+                f = float(x)
+                return int(f) if f == int(f) else x
+            except (TypeError, ValueError):
+                return x
+
         rows = []
         for _, r in df.iterrows():
             diff = r.get("CRC差值", 0)
@@ -120,8 +132,8 @@ class CrcCompareTool(BaseTool):
             except (TypeError, ValueError):
                 pass
             rows.append([r.get("设备名称", ""), r.get("接口名称", ""),
-                         r.get("今日CRC值", 0), r.get("昨日CRC值", 0),
-                         diff, r.get("厂商", ""), r.get("备注", "") or "",
+                         _num(r.get("今日CRC值", 0)), _num(r.get("昨日CRC值", 0)),
+                         _num(diff), r.get("厂商", ""), r.get("备注", "") or "",
                          "成功", ""])
         to_num = lambda x: abs(float(x)) if isinstance(x, (int, float)) else 0
         rows.sort(key=lambda row: to_num(row[4]), reverse=True)
