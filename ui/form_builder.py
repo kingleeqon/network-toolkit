@@ -66,6 +66,41 @@ class FormBuilder(object):
         rows = (n + 1) // 2 if getattr(self, "two_col", False) else n
         return rows * 2
 
+    def refresh_dynamic_options(self):
+        """重新拉取 options_provider 并更新 Combobox，保持用户已选的「值」不变。
+
+        后台数据就绪时调用（如 CRC 历史缓存预热完成），避免用户必须切走再
+        切回才能看到真实下拉选项。
+        """
+        for spec in self.params:
+            provider = getattr(spec, "options_provider", None)
+            if provider is None:
+                continue
+            try:
+                opts = provider() or []
+            except Exception:
+                continue
+            w = self.widgets.get(spec.key)
+            var = self.vars.get(spec.key)
+            if w is None or var is None:
+                continue
+            labels, mapping = [], {}
+            for opt in opts:
+                lab = opt.get("label", opt.get("value", ""))
+                labels.append(lab)
+                mapping[lab] = opt.get("value", lab)
+            old_label = var.get()
+            old_value = self._choice_map.get(spec.key, {}).get(old_label, old_label)
+            self._choice_map[spec.key] = mapping
+            try:
+                w.configure(values=labels)
+                new_label = next((l for l, v in mapping.items()
+                                  if v == old_value), None)
+                var.set(new_label if new_label is not None
+                        else (labels[0] if labels else ""))
+            except Exception:
+                pass
+
     # —— 渲染 ——
     def _build(self):
         two_col = len(self.params) >= TWO_COLUMN_THRESHOLD

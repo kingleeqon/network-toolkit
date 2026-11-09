@@ -44,8 +44,9 @@ MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 32
 DEFAULT_FONT_SIZE = 12
 
-# 单帧渲染上限：超过后转批量刷新，避免逐行 insert 拖慢主线程
-BATCH_LIMIT = 2000
+# 单次 refresh 超过这个行数就分帧插入：几千行逐行 tree.insert 一次性跑完
+# 会把主线程堵住（切换工具/载入历史结果时表现为「无响应」）。
+CHUNK_ROWS = 400
 
 
 class ResultView(object):
@@ -53,6 +54,7 @@ class ResultView(object):
         self.frame = ttk.Frame(master)
         self.columns = list(columns or [])
         self.rows = []
+        self._render_gen = 0       # 分帧渲染代号：clear/换列/重刷时作废旧批次
         self._filter_var = tk.StringVar(value="全部")
         self._sort_desc = {}
         self._sort_col = None
@@ -245,11 +247,13 @@ class ResultView(object):
 
     # —— 数据 ——
     def set_columns(self, columns):
+        self._render_gen += 1
         self.columns = list(columns or [])
         self.tree.configure(columns=self.columns)
         self._apply_columns()
 
     def clear(self):
+        self._render_gen += 1
         self.rows = []
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -259,8 +263,8 @@ class ResultView(object):
     def add_row(self, row, status):
         self.rows.append((list(row), status))
         # 筛选=全部时视图里就是全量行，直接插单行即可；
-        # 原先「超过 BATCH_LIMIT 就整表 refresh」是 O(n²)：
-        # 大清单（几千台设备）跑到后段每一行都触发全量重刷，界面越来越卡
+        # 原先结果行一多就整表 refresh 是 O(n²)：大清单跑到后段
+        # 每一行都触发全量重刷，界面越来越卡
         if self._filter_var.get() != "全部":
             self.refresh()
             return
@@ -286,22 +290,53 @@ class ResultView(object):
             self.tree.insert("", "end", values=padded[:len(self.columns)], tags=tags)
 
     def refresh(self):
+        self._render_gen += 1
+        gen = self._render_gen
         for item in self.tree.get_children():
             self.tree.delete(item)
         shown = self._filtered()
-        for i, (row, status) in enumerate(shown):
-            self._insert(row, status, i)
 
+        # 计数/空态立刻更新，用户马上看到界面有响应
         if self.rows:
             self.count_label.configure(text="共 %d 行（显示 %d 行）" % (len(self.rows), len(shown)))
             self.empty_label.pack_forget()
-            # 数据变了列宽也重算：一列都固定 120px 时，窄列（IP）白占空间、
-            # 宽列（失败原因）被截，还会莫名多出横向滚动条
-            self.autofit_columns()
         else:
             self.count_label.configure(text="")
             self.empty_label.configure(text="本次未产生结果数据")
             self.empty_label.pack(pady=12)
+
+        if len(shown) > CHUNK_ROWS:
+            # 大结果集（切回有几千行的工具、载入历史 Excel）分帧插入，
+            # 列宽测量放到最后一帧，避免整段 insert + measure 堵住主线程
+            rows = list(shown)          # 快照：分帧期间 self.rows 仍可能被追加
+            try:
+                self.tree.after_idle(lambda: self._render_chunk(rows, 0, gen))
+            except Exception:
+                for i, (row, status) in enumerate(rows):
+                    self._insert(row, status, i)
+            return
+
+        for i, (row, status) in enumerate(shown):
+            self._insert(row, status, i)
+        if self.rows:
+            # 数据变了列宽也重算：固定 120px 时窄列（IP）白占空间、
+            # 宽列（失败原因）被截，还会莫名多出横向滚动条
+            self.autofit_columns()
+
+    def _render_chunk(self, shown, start, gen):
+        """每帧插一批行；期间若被 clear/换列/重刷覆盖，旧批次立即作废。"""
+        if gen != self._render_gen:
+            return
+        end = min(start + CHUNK_ROWS, len(shown))
+        for i in range(start, end):
+            self._insert(shown[i][0], shown[i][1], i)
+        if end < len(shown):
+            try:
+                self.tree.after(1, lambda: self._render_chunk(shown, end, gen))
+            except Exception:
+                pass
+        elif self.rows:
+            self.autofit_columns()
 
     def _filtered(self):
         f = self._filter_var.get()

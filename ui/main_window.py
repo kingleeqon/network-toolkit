@@ -158,6 +158,7 @@ class MainWindow(object):
         self._sched_q = queue.Queue()
         self.root.after(200, self._drain_sched_events)
         self.scheduler.start()
+        self._start_crc_history_preload()
         self.root.after(600, self._on_scheduler_status)
         self.root.after(2000, self._tick_sched_status)
         self._apply_font_size()
@@ -498,6 +499,33 @@ class MainWindow(object):
         except Exception:
             pass
 
+    def _start_crc_history_preload(self):
+        """启动后后台预热 CRC 历史缓存，首次切到趋势工具不再卡主线程。
+
+        worker 线程只做反序列化与聚合，完成后往 _sched_q 投递事件；
+        工作线程禁止碰 Tk（见 _on_scheduler_log 注释）。
+        """
+        try:
+            from tools import crc_trend
+            crc_trend.start_preload(
+                lambda: self._sched_q.put(("history_ready",)))
+        except Exception:
+            pass
+
+    def _on_history_ready(self):
+        """缓存预热完成后刷新当前表单的动态下拉（占位 → 真实选项）。"""
+        tool = getattr(self, "current_tool", None)
+        form = getattr(self, "form", None)
+        if tool is None or form is None:
+            return
+        if not any(getattr(s, "options_provider", None)
+                   for s in (tool.params or [])):
+            return
+        try:
+            form.refresh_dynamic_options()
+        except Exception:
+            pass
+
     def _drain_sched_events(self):
         """主线程统一排空调度器事件（日志/状态/运行结束），Tk 只在主线程碰。"""
         try:
@@ -510,6 +538,8 @@ class MainWindow(object):
                         self._apply_sched_status()
                     elif item[0] == "result_files":
                         self._apply_result_files(item[1], item[2])
+                    elif item[0] == "history_ready":
+                        self._on_history_ready()
                     elif item[0] == "done":
                         self._apply_sched_run(*item[1:])
                 except Exception:

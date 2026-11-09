@@ -16,6 +16,7 @@
 结果表不承载图表内容，保持为空。
 """
 import math
+import threading
 from pathlib import Path
 
 from core.tool_base import BaseTool, ParamSpec
@@ -174,33 +175,36 @@ def _setup_matplotlib():
         return None
 
 
-# —— 表单动态选项（只读缓存，绝不阻塞 UI）——
+# —— 表单动态选项（主线程只读内存，绝不反序列化）——
 def _project_root_static():
     return Path(__file__).resolve().parent.parent
 
 
-# 记忆化：仅在缓存文件变化时重新读取（避免每次渲染表单都反序列化 10MB）
-_OPT_MEMO = {"key": None, "df": None}
+# 记忆化：df + 两个下拉的最终选项一起缓存。
+# 原先只缓存 df，_device_options() 每次切到本工具都要重跑一遍
+# pandas groupby/sort，几千行历史时是「每次切换都发生」的主线程 CPU 活。
+_OPT_LOCK = threading.Lock()
+_OPT_MEMO = {"key": None, "df": None, "date_opts": None, "device_opts": None}
+_PRELOADING = False
+_ON_READY = None          # 线程安全回调（UI 里只往队列投递事件，不碰 Tk）
+
+_EMPTY_DEVICE = {"label": "（留空：自动取差值最大的前N台）", "value": ""}
+_PLACEHOLDER_DATE = [{"label": "最新（自动）", "value": ""},
+                     {"label": "（历史数据加载中…）", "value": ""}]
+_PLACEHOLDER_DEVICE = [dict(_EMPTY_DEVICE),
+                       {"label": "（历史数据加载中…）", "value": ""}]
 
 
-def _cached_df():
-    root = _project_root_static()
+def _cache_key(root):
     cache_file = root / "output" / "crc_compare" / ".history_cache.pkl"
     try:
-        key = (str(cache_file), cache_file.stat().st_mtime)
+        st = cache_file.stat()
+        return (str(cache_file), st.st_mtime, st.st_size)
     except OSError:
         return None
-    if _OPT_MEMO["key"] == key:
-        return _OPT_MEMO["df"]
-    df = ch.load_cached(str(root))
-    _OPT_MEMO["key"] = key
-    _OPT_MEMO["df"] = df
-    return df
 
 
-def _date_options():
-    """分析日期下拉：最新（自动）+ 历史各天（新→旧）。"""
-    df = _cached_df()
+def _build_date_opts(df):
     dates = ch.list_dates(df) if df is not None else []
     opts = [{"label": "最新（自动）", "value": ""}]
     for d in reversed(dates):
@@ -208,24 +212,98 @@ def _date_options():
     return opts
 
 
-def _device_options():
-    """设备下拉：最新一天差值最大的前 50 台（便于直接挑问题设备）。"""
-    df = _cached_df()
+def _build_device_opts(df):
     if df is None or df.empty:
-        return [{"label": "（留空：自动取差值最大的前N台）", "value": ""}]
+        return [dict(_EMPTY_DEVICE)]
     actual, ok = ch.resolve_date(df)
     if not ok:
-        return [{"label": "（留空：自动取差值最大的前N台）", "value": ""}]
+        return [dict(_EMPTY_DEVICE)]
     d = df[df[ch._COL_DATE] == actual]
     if d.empty:
-        return [{"label": "（留空：自动取差值最大的前N台）", "value": ""}]
+        return [dict(_EMPTY_DEVICE)]
     agg = (d.assign(_a=d[ch._COL_DIFF].abs())
              .groupby(ch._COL_DEVICE)["_a"].sum()
              .sort_values(ascending=False).head(50))
-    opts = [{"label": "（留空：自动取差值最大的前N台）", "value": ""}]
+    opts = [dict(_EMPTY_DEVICE)]
     for dev, val in agg.items():
         opts.append({"label": "%s  (差值 %d)" % (dev, int(val)), "value": dev})
     return opts
+
+
+def start_preload(callback=None):
+    """后台反序列化历史缓存并预算下拉选项。
+
+    主线程任何时候都不会调用 pd.read_pickle：缓存未就绪就先显示占位选项，
+    预热完成后通过 callback 通知（callback 投递到主线程队列，不碰 Tk）。
+    """
+    global _PRELOADING, _ON_READY
+    with _OPT_LOCK:
+        if callback is not None:
+            _ON_READY = callback
+        if _PRELOADING:
+            return
+        _PRELOADING = True
+
+    def worker():
+        global _PRELOADING
+        root = _project_root_static()
+        key = _cache_key(root)
+        try:
+            df = ch.load_cached(str(root))
+        except Exception:
+            df = None
+        date_opts = _build_date_opts(df)
+        device_opts = _build_device_opts(df)
+        with _OPT_LOCK:
+            _OPT_MEMO.update({"key": key, "df": df,
+                              "date_opts": date_opts, "device_opts": device_opts})
+            _PRELOADING = False
+            cb = _ON_READY
+        if cb:
+            try:
+                cb()
+            except Exception:
+                pass
+
+    threading.Thread(target=worker, daemon=True,
+                     name="crc-history-preload").start()
+
+
+def _options_ready():
+    """缓存指纹未变且选项已预热？未就绪则发起后台预热（不阻塞调用方）。"""
+    key = _cache_key(_project_root_static())
+    with _OPT_LOCK:
+        # 不要求 key 非 None：缓存文件不存在时也要记住「已尝试过」，
+        # 否则每调用一次 provider 就会重复起一个预热线程
+        ready = (_OPT_MEMO["key"] == key
+                 and _OPT_MEMO["date_opts"] is not None)
+    if not ready:
+        start_preload()
+    return ready
+
+
+def _cached_df():
+    """已预热的历史 DataFrame；未就绪返回 None 并触发后台预热。"""
+    if not _options_ready():
+        return None
+    with _OPT_LOCK:
+        return _OPT_MEMO["df"]
+
+
+def _date_options():
+    """分析日期下拉：最新（自动）+ 历史各天（新→旧）。"""
+    if not _options_ready():
+        return _PLACEHOLDER_DATE
+    with _OPT_LOCK:
+        return _OPT_MEMO["date_opts"]
+
+
+def _device_options():
+    """设备下拉：最新一天差值最大的前 50 台（便于直接挑问题设备）。"""
+    if not _options_ready():
+        return _PLACEHOLDER_DEVICE
+    with _OPT_LOCK:
+        return _OPT_MEMO["device_opts"]
 
 
 class CrcTrendTool(BaseTool):

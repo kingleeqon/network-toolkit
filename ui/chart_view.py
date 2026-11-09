@@ -133,9 +133,15 @@ class ChartView(object):
             self._size_job = None
 
     def _resize_all(self):
-        """按当前可视宽高重算所有卡片尺寸（高度随宽度变，长宽比保持稳定）。"""
+        """按当前可视宽高重算所有卡片尺寸（高度随宽度变，长宽比保持稳定）。
+
+        只处理可见卡片：隐藏的属于别的工具，_create 时已定过尺寸与缩放，
+        切换时没必要对十几张隐藏图反复跑 findobj + 字体测量。
+        """
         self._size_job = None
         for rec in self._items:
+            if not rec["visible"]:
+                continue
             before = rec.get("_ks")
             self._apply_size(rec)
             # 基准宽变了，字号要跟着重算（_ks 是上一次实际用的总倍数）
@@ -640,7 +646,8 @@ class ChartView(object):
     def _fit_titles(self):
         self._title_job = None
         for rec in self._items:
-            self._fit_title(rec)
+            if rec["visible"]:
+                self._fit_title(rec)
 
     def _fit_title(self, rec):
         """把标题压到 Label 现有宽度内，且不切坏 "Top20" 这类后缀。
@@ -847,7 +854,8 @@ class ChartView(object):
         items = [it for it in (items or []) if it and it[0] is not None]
         wanted_ids = set(id(f) for f, _ in items)
 
-        # 全部隐藏
+        # 全部隐藏（先记下谁原本可见：隐藏期间窗口可能变过尺寸）
+        was_visible = {id(rec["figure"]): rec["visible"] for rec in self._items}
         for rec in self._items:
             rec["visible"] = False
 
@@ -856,6 +864,10 @@ class ChartView(object):
             rec = self._create(figure, title)
             if rec is None:
                 continue
+            # 从隐藏恢复的卡片补一次轻量定尺；缩放交给 Configure 触发的
+            # _resize_all（现在只处理可见卡片），避免这里逐图 findobj
+            if not was_visible.get(id(figure), True):
+                self._apply_size(rec)
             rec["visible"] = True
 
         # 未被任何工具引用的卡片保持隐藏（保留 canvas 供切回复用）
