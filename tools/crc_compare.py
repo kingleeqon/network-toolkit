@@ -5,6 +5,7 @@
 输出 Excel（含日期列，供 CRC 趋势分析按天累积）。
 支持华为/中兴/锐捷/华三/思科/烽火(交换机)/迪普(防火墙)。
 """
+import json
 import os
 import re
 import shutil
@@ -104,16 +105,35 @@ class CrcCompareTool(BaseTool):
         return [(p.name, str(p)) for p in files]
 
     def load_result_file(self, path):
-        """把历史 Excel 读成结果表行：只留有变化的接口（与运行时的展示口径一致）。
+        """把历史结果读成结果表行：只留有变化的接口（与运行时展示口径一致）。
 
-        Excel 里是全量明细（可能 5 万+行），直接塞进表格会卡死界面，
-        所以按 CRC差值 != 0 过滤并按差值绝对值排序，最多 5000 行。
+        优先读同名紧凑 JSON（CRC 对比另存结果时同步生成，只含变化接口、
+        十几 KB 级）：5.8 万行的 xlsx 全量读要 3.7s，读紧凑文件只要 0.007s。
+        历史文件没有 JSON、或 JSON 比 xlsx 旧时自动回退向量化读 Excel。
         """
         import pandas as pd
-        df = pd.read_excel(path)
+
+        p = Path(path)
+        cache = p.with_suffix(".json")
+        try:
+            if cache.is_file() and cache.stat().st_mtime >= p.stat().st_mtime:
+                data = json.loads(cache.read_text(encoding="utf-8"))
+                if data.get("version") == 1 and data.get("columns"):
+                    return list(data["columns"]), [list(r) for r in data.get("rows") or []]
+        except Exception:
+            pass
+
+        df = pd.read_excel(str(p))
         # 空单元格（如差值没超 1000 的行备注为空）会被 pandas 读成 NaN，
         # 且 NaN 是真值，后面的 `or ""` 拦不住 —— 不清掉界面上就显示成 "nan"
         df = df.fillna("")
+        cols = ["设备名称", "接口名称", "今日CRC值", "昨日CRC值",
+                "CRC差值", "厂商", "备注"]
+        if "CRC差值" not in df.columns:
+            return list(self.result_columns), []
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
 
         def _num(x):
             # 整数列若混过空值会变 float，读回来带 .0，显示前归一成整数
@@ -123,21 +143,37 @@ class CrcCompareTool(BaseTool):
             except (TypeError, ValueError):
                 return x
 
-        rows = []
-        for _, r in df.iterrows():
-            diff = r.get("CRC差值", 0)
+        # 向量化过滤/排序：原先 iterrows 逐行跑 5.8 万次要 1.1s，这里约 5ms
+        diff = pd.to_numeric(df["CRC差值"], errors="coerce").fillna(0)
+        sub = df[diff != 0].copy()
+        sub["_abs"] = diff[diff != 0].abs()
+        sub = sub.sort_values("_abs", ascending=False).head(_MAX_RESULT_ROWS)
+        rows = [[r[0], r[1], _num(r[2]), _num(r[3]), _num(r[4]),
+                 r[5], r[6] or "", "成功", ""]
+                for r in sub[cols].values.tolist()]
+        return list(self.result_columns), rows
+
+    def _write_compact_json(self, xlsx_path, shown, date_str, total, changed):
+        """另存结果时同步写「变化接口」紧凑 JSON，供历史结果面板秒开。
+
+        与 xlsx 同名不同后缀；先写 .tmp 再原子替换，避免界面读到写一半的文件。
+        写失败不影响主流程（load_result_file 会自动回退读 Excel）。
+        """
+        target = Path(xlsx_path).with_suffix(".json")
+        payload = {"version": 1, "columns": list(self.result_columns),
+                   "rows": [list(r) for r in shown],
+                   "total": int(total), "changed": int(changed),
+                   "date": date_str}
+        tmp = target.with_name(target.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, default=str),
+                           encoding="utf-8")
+            os.replace(str(tmp), str(target))
+        except Exception:
             try:
-                if float(diff or 0) == 0:
-                    continue
-            except (TypeError, ValueError):
+                tmp.unlink(missing_ok=True)
+            except Exception:
                 pass
-            rows.append([r.get("设备名称", ""), r.get("接口名称", ""),
-                         _num(r.get("今日CRC值", 0)), _num(r.get("昨日CRC值", 0)),
-                         _num(diff), r.get("厂商", ""), r.get("备注", "") or "",
-                         "成功", ""])
-        to_num = lambda x: abs(float(x)) if isinstance(x, (int, float)) else 0
-        rows.sort(key=lambda row: to_num(row[4]), reverse=True)
-        return list(self.result_columns), rows[:_MAX_RESULT_ROWS]
 
     def validate_params(self, params):
         """启用定时前的前置校验：要么填自动根目录，要么两个目录都选。"""
@@ -223,6 +259,13 @@ class CrcCompareTool(BaseTool):
                                 _VENDOR_NAMES.get(vendor, vendor), remark, "", ""])
             processed += 1
 
+        # 结果表展示「有 CRC 变化」的接口明细（列与内容一一对应）；
+        # 全量明细始终在 Excel 中，避免 5.8 万行卡死界面。
+        # 口径只在这里定义一次：另存的紧凑 JSON 与 emit 的结果行同源
+        changed_rows = [r for r in results if r[4] != 0]
+        changed_rows.sort(key=lambda r: abs(r[4]), reverse=True)
+        shown = changed_rows[:_MAX_RESULT_ROWS]
+
         out = self._write_excel(results, date_str, ctx)
         ctx.log("CRC 对比完成：成功 %d 设备 / 跳过 %d，记录 %d 条（日期 %s）-> %s"
                 % (processed, skipped, len(results), date_str, out))
@@ -235,16 +278,13 @@ class CrcCompareTool(BaseTool):
                 folder.mkdir(parents=True, exist_ok=True)
                 target = folder / ("CRC对比_%s%s" % (date_str, out.suffix))
                 shutil.copy2(str(out), str(target))
+                self._write_compact_json(target, shown, date_str,
+                                         len(results), len(changed_rows))
                 ctx.log("结果已另存：%s（同日重复运行会覆盖同名文件）" % target)
             except Exception as exc:
                 ctx.log("另存到「%s」失败，结果仍在任务目录：%s" % (out_dir, exc),
                         level="WARN")
 
-        # 结果表展示「有 CRC 变化」的接口明细（列与内容一一对应）；
-        # 全量明细始终在 Excel 中，避免 5.8 万行卡死界面。
-        changed_rows = [r for r in results if r[4] != 0]
-        changed_rows.sort(key=lambda r: abs(r[4]), reverse=True)
-        shown = changed_rows[:_MAX_RESULT_ROWS]
         for r in shown:
             emit("result", {"row": r, "status": "OK"})
         if len(changed_rows) > len(shown):
