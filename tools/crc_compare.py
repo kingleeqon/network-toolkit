@@ -65,6 +65,70 @@ def _latest_two_day_dirs(root):
     return days[-2], days[-1]
 
 
+# —— 紧凑索引：界面回退路径与 scripts/backfill_crc_index.py 共用 ——
+_COMPACT_COLS = ["设备名称", "接口名称", "今日CRC值", "昨日CRC值",
+                 "CRC差值", "厂商", "备注"]
+
+
+def _compact_num(x):
+    """整数列若混过空值会变 float，读回来带 .0，显示前归一成整数。"""
+    try:
+        f = float(x)
+        return int(f) if f == int(f) else x
+    except (TypeError, ValueError):
+        return x
+
+
+def build_compact_from_excel(path):
+    """从 xlsx 全量明细生成紧凑内容 → (rows, total, changed)。
+
+    只在这里定义一次口径：界面回退读 Excel、批量补索引脚本都走它。
+    """
+    import pandas as pd
+    df = pd.read_excel(str(path))
+    # 空单元格（差值没超 1000 的行备注为空）会被 pandas 读成 NaN，
+    # 且 NaN 是真值，`or ""` 拦不住 —— 不清掉界面上会显示成 "nan"
+    df = df.fillna("")
+    if "CRC差值" not in df.columns:
+        return [], 0, 0
+    for c in _COMPACT_COLS:
+        if c not in df.columns:
+            df[c] = ""
+    total = len(df)
+    diff = pd.to_numeric(df["CRC差值"], errors="coerce").fillna(0)
+    mask = diff != 0
+    changed = int(mask.sum())
+    sub = df[mask].copy()
+    sub["_abs"] = diff[mask].abs()
+    sub = sub.sort_values("_abs", ascending=False).head(_MAX_RESULT_ROWS)
+    # 向量化过滤/排序：原先 iterrows 逐行跑 5.8 万次要 1.1s，这里约 5ms
+    rows = [[r[0], r[1], _compact_num(r[2]), _compact_num(r[3]),
+             _compact_num(r[4]), r[5], r[6] or "", "成功", ""]
+            for r in sub[_COMPACT_COLS].values.tolist()]
+    return rows, total, changed
+
+
+def write_compact_json(xlsx_path, columns, rows, total, changed, date_str):
+    """写「变化接口」紧凑 JSON（.tmp + 原子替换），返回目标路径。"""
+    target = Path(xlsx_path).with_suffix(".json")
+    payload = {"version": 1, "columns": list(columns),
+               "rows": [list(r) for r in rows],
+               "total": int(total), "changed": int(changed),
+               "date": date_str}
+    tmp = target.with_name(target.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, default=str),
+                       encoding="utf-8")
+        os.replace(str(tmp), str(target))
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+    return target
+
+
 class CrcCompareTool(BaseTool):
     id = "crc_compare"
     name = "接口CRC对比分析"
@@ -110,9 +174,8 @@ class CrcCompareTool(BaseTool):
         优先读同名紧凑 JSON（CRC 对比另存结果时同步生成，只含变化接口、
         十几 KB 级）：5.8 万行的 xlsx 全量读要 3.7s，读紧凑文件只要 0.007s。
         历史文件没有 JSON、或 JSON 比 xlsx 旧时自动回退向量化读 Excel。
+        快路径刻意不 import pandas（首次导入约 1s，会把秒开又拖慢）。
         """
-        import pandas as pd
-
         p = Path(path)
         cache = p.with_suffix(".json")
         try:
@@ -123,57 +186,16 @@ class CrcCompareTool(BaseTool):
         except Exception:
             pass
 
-        df = pd.read_excel(str(p))
-        # 空单元格（如差值没超 1000 的行备注为空）会被 pandas 读成 NaN，
-        # 且 NaN 是真值，后面的 `or ""` 拦不住 —— 不清掉界面上就显示成 "nan"
-        df = df.fillna("")
-        cols = ["设备名称", "接口名称", "今日CRC值", "昨日CRC值",
-                "CRC差值", "厂商", "备注"]
-        if "CRC差值" not in df.columns:
-            return list(self.result_columns), []
-        for c in cols:
-            if c not in df.columns:
-                df[c] = ""
-
-        def _num(x):
-            # 整数列若混过空值会变 float，读回来带 .0，显示前归一成整数
-            try:
-                f = float(x)
-                return int(f) if f == int(f) else x
-            except (TypeError, ValueError):
-                return x
-
-        # 向量化过滤/排序：原先 iterrows 逐行跑 5.8 万次要 1.1s，这里约 5ms
-        diff = pd.to_numeric(df["CRC差值"], errors="coerce").fillna(0)
-        sub = df[diff != 0].copy()
-        sub["_abs"] = diff[diff != 0].abs()
-        sub = sub.sort_values("_abs", ascending=False).head(_MAX_RESULT_ROWS)
-        rows = [[r[0], r[1], _num(r[2]), _num(r[3]), _num(r[4]),
-                 r[5], r[6] or "", "成功", ""]
-                for r in sub[cols].values.tolist()]
+        rows, _total, _changed = build_compact_from_excel(p)
         return list(self.result_columns), rows
 
     def _write_compact_json(self, xlsx_path, shown, date_str, total, changed):
-        """另存结果时同步写「变化接口」紧凑 JSON，供历史结果面板秒开。
-
-        与 xlsx 同名不同后缀；先写 .tmp 再原子替换，避免界面读到写一半的文件。
-        写失败不影响主流程（load_result_file 会自动回退读 Excel）。
-        """
-        target = Path(xlsx_path).with_suffix(".json")
-        payload = {"version": 1, "columns": list(self.result_columns),
-                   "rows": [list(r) for r in shown],
-                   "total": int(total), "changed": int(changed),
-                   "date": date_str}
-        tmp = target.with_name(target.name + ".tmp")
+        """另存结果时同步写紧凑索引；写失败不影响主流程（会自动回退读 Excel）。"""
         try:
-            tmp.write_text(json.dumps(payload, ensure_ascii=False, default=str),
-                           encoding="utf-8")
-            os.replace(str(tmp), str(target))
+            write_compact_json(xlsx_path, self.result_columns, shown,
+                               total, changed, date_str)
         except Exception:
-            try:
-                tmp.unlink(missing_ok=True)
-            except Exception:
-                pass
+            pass
 
     def validate_params(self, params):
         """启用定时前的前置校验：要么填自动根目录，要么两个目录都选。"""
