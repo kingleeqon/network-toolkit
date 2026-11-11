@@ -248,15 +248,28 @@ class ResultView(object):
     # —— 数据 ——
     def set_columns(self, columns):
         self._render_gen += 1
+        # 树里可能还挂着上一个工具的几千行：先清空再改列结构，
+        # 否则 Tk 会按旧列结构重排全部旧行——「有结果表时切换/载入卡顿」的直接原因
+        self._drop_all_items()
         self.columns = list(columns or [])
         self.tree.configure(columns=self.columns)
         self._apply_columns()
 
+    def _drop_all_items(self):
+        """一次性删除全部行：单次 Tcl 调用，比逐行 delete 快一个量级。"""
+        try:
+            self.tree.delete(*self.tree.get_children())
+        except Exception:
+            for item in self.tree.get_children():
+                try:
+                    self.tree.delete(item)
+                except Exception:
+                    pass
+
     def clear(self):
         self._render_gen += 1
         self.rows = []
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        self._drop_all_items()
         self.count_label.configure(text="")
         self.empty_label.pack_forget()
 
@@ -292,8 +305,7 @@ class ResultView(object):
     def refresh(self):
         self._render_gen += 1
         gen = self._render_gen
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        self._drop_all_items()
         shown = self._filtered()
 
         # 计数/空态立刻更新，用户马上看到界面有响应

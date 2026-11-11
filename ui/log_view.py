@@ -120,10 +120,37 @@ class LogView(object):
         return entries
 
     def set_state(self, entries):
-        """用 get_state() 的结果整体恢复（内部先清空）。"""
+        """用 get_state() 的结果整体恢复（内部先清空）。
+
+        一次性拼好整段文本、单次 insert，行级配色按「相邻同级别合并」补
+        tag：原先逐行 _write_line，每行 5 次 Tk 调用还各带一次 see("end")，
+        几千行日志恢复时会把主线程堵几百毫秒——切换工具卡顿的大头之一。
+        """
+        entries = list(entries or [])[-MAX_LINES:]
         self.clear()
-        for level, line in (entries or []):
-            self._write_line(level if level in LEVELS else "INFO", line)
+        if not entries:
+            return
+        try:
+            self.text.configure(state="normal")
+            self.text.insert("end", "\n".join(l for _lvl, l in entries) + "\n")
+            # 行号从 1 起；级别变化处切段，整段一次 tag_add
+            cur = seg_start = None
+            for i, (level, _line) in enumerate(entries, 1):
+                tag = self.level_tags.get(level if level in LEVELS else "INFO")
+                if tag != cur:
+                    if cur and seg_start is not None:
+                        self.text.tag_add(cur, "%d.0" % seg_start,
+                                          "%d.end" % (i - 1))
+                    cur, seg_start = tag, i
+            if cur and seg_start is not None:
+                self.text.tag_add(cur, "%d.0" % seg_start, "end-1c")
+            self.line_count = len(entries)
+            if self.follow.get():
+                self.text.see("end")
+            self.text.configure(state="disabled")
+            self.count_label.configure(text="%d 行" % self.line_count)
+        except Exception:
+            pass
 
     def clear(self):
         try:
