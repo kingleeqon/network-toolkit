@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>网络运维工具箱 · UI 设计稿 v0.2</title>
+<style>
+/* ============================================================
+   Network Toolkit · UI Design System — Semantic Tokens
+   与同目录 tokens.css 完全一致（此处内联，保证单文件可直接预览）
+   ============================================================ */
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --bg-app:#0a1120; --bg-panel:#0f1a2d; --bg-surface:#142138;
+  --bg-elevated:#1a2b46; --bg-hover:#20334f; --bg-active:#263c5c;
+  --bg-inset:#0c1627; --bg-grid:rgba(148,180,220,.035);
+  --border:#243753; --border-strong:#33507a; --border-focus:#22d3ee;
+  --text-primary:#edf3fb; --text-secondary:#a8bad2; --text-muted:#7b8fac;
+  --text-on-brand:#04121c; --text-on-danger:#1a0a0a;
+  --brand:#22d3ee; --brand-hover:#67e8f9; --brand-soft:rgba(34,211,238,.12);
+  --brand-border:rgba(34,211,238,.32); --accent:#7c96ff; --accent-soft:rgba(124,150,255,.14);
+  --success:#34d399; --success-soft:rgba(52,211,153,.13); --success-border:rgba(52,211,153,.30);
+  --warning:#fbbf24; --warning-soft:rgba(251,191,36,.13); --warning-border:rgba(251,191,36,.30);
+  --danger:#f87171; --danger-soft:rgba(248,113,113,.13); --danger-border:rgba(248,113,113,.32);
+  --info:#60a5fa; --info-soft:rgba(96,165,250,.13); --info-border:rgba(96,165,250,.30);
+  --neutral:#94a3b8; --neutral-soft:rgba(148,163,184,.12);
+  --cat-collect:#22d3ee; --cat-parse:#a78bfa; --cat-utility:#60a5fa;
+  --cat-check:#fbbf24; --cat-session:#34d399; --cat-demo:#94a3b8;
+  --chart-grid:rgba(168,186,210,.12); --chart-axis:#7b8fac;
+  --chart-bar:#22d3ee; --chart-bar-alt:#7c96ff; --chart-bad:#f87171; --chart-good:#34d399;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.28); --shadow-md:0 6px 18px rgba(0,0,0,.34);
+  --shadow-lg:0 18px 48px rgba(0,0,0,.46); --ring-focus:0 0 0 3px rgba(34,211,238,.28);
+}
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-app:#f2f6fb; --bg-panel:#fff; --bg-surface:#fff;
+  --bg-elevated:#f7fafd; --bg-hover:#eef3f9; --bg-active:#e3ecf7;
+  --bg-inset:#f7fafd; --bg-grid:rgba(38,76,124,.028);
+  --border:#dce4ef; --border-strong:#c2d0e2; --border-focus:#0891b2;
+  --text-primary:#15243b; --text-secondary:#50627d; --text-muted:#6d7f99;
+  --text-on-brand:#fff; --text-on-danger:#fff;
+  --brand:#0e8ba8; --brand-hover:#0a7490; --brand-soft:rgba(8,145,178,.10);
+  --brand-border:rgba(8,145,178,.28); --accent:#4f6bed; --accent-soft:rgba(79,107,237,.10);
+  --success:#0b8a61; --success-soft:rgba(14,159,110,.10); --success-border:rgba(14,159,110,.26);
+  --warning:#a3600a; --warning-soft:rgba(245,158,11,.13); --warning-border:rgba(217,119,6,.28);
+  --danger:#c83232; --danger-soft:rgba(220,38,38,.08); --danger-border:rgba(220,38,38,.26);
+  --info:#2563eb; --info-soft:rgba(37,99,235,.09); --info-border:rgba(37,99,235,.24);
+  --neutral:#64748b; --neutral-soft:rgba(100,116,139,.10);
+  --cat-collect:#0e8ba8; --cat-parse:#7c5cd6; --cat-utility:#2563eb;
+  --cat-check:#a3600a; --cat-session:#0b8a61; --cat-demo:#64748b;
+  --chart-grid:rgba(21,36,59,.10); --chart-axis:#6d7f99;
+  --chart-bar:#0e8ba8; --chart-bar-alt:#4f6bed; --chart-bad:#c83232; --chart-good:#0b8a61;
+  --shadow-sm:0 1px 2px rgba(21,36,59,.06); --shadow-md:0 6px 18px rgba(21,36,59,.08);
+  --shadow-lg:0 18px 48px rgba(21,36,59,.14); --ring-focus:0 0 0 3px rgba(8,145,178,.22);
+}
+:root {
+  --font-sans:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI","PingFang SC",sans-serif;
+  --font-mono:"JetBrains Mono","Cascadia Mono","SFMono-Regular",Consolas,monospace;
+  --fs-11:11px; --fs-12:12px; --fs-13:13px; --fs-14:14px;
+  --fs-16:16px; --fs-20:20px; --fs-26:26px; --fs-32:32px;
+  --lh-tight:1.25; --lh-base:1.5; --lh-loose:1.7;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px; --sp-12:48px;
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-pill:999px;
+  --dur-fast:150ms; --dur-base:260ms; --dur-slow:420ms;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --sidebar-w:268px; --appbar-h:58px; --statusbar-h:34px;
+}
+
+/* ============================ Base ============================ */
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:var(--font-sans);font-size:var(--fs-13);line-height:var(--lh-base);
+  color:var(--text-primary);background:var(--bg-app);-webkit-font-smoothing:antialiased;
+  transition:background-color var(--dur-base) var(--ease),color var(--dur-base) var(--ease)}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+a{color:inherit}
+::selection{background:var(--brand-soft);color:var(--text-primary)}
+:focus-visible{outline:none;box-shadow:var(--ring-focus);border-radius:var(--r-sm)}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+.ico{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round}
+.ico-sm{width:14px;height:14px}
+.ico-lg{width:20px;height:20px}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--text-muted)}
+.sec{color:var(--text-secondary)}
+
+/* ============================ Shell ============================ */
+.app-shell{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.appbar{height:var(--appbar-h);flex:none;display:flex;align-items:center;gap:var(--sp-3);
+  padding:0 var(--sp-5);background:var(--bg-panel);border-bottom:1px solid var(--border);z-index:5}
+.brand{display:flex;align-items:center;gap:var(--sp-3);flex:none}
+.brand-mark{width:34px;height:34px;border-radius:var(--r-md);display:grid;place-items:center;
+  background:linear-gradient(145deg,var(--brand-soft),transparent);border:1px solid var(--brand-border);
+  color:var(--brand)}
+.brand-mark .ico{width:22px;height:22px;stroke-width:1.6}
+.brand-txt{display:flex;flex-direction:column;line-height:1.2}
+.brand-cn{font-size:var(--fs-14);font-weight:700;letter-spacing:.02em}
+.brand-en{font-family:var(--font-mono);font-size:9px;letter-spacing:.18em;color:var(--text-muted);margin-top:3px}
+.vr{width:1px;height:22px;background:var(--border);flex:none}
+.spacer{flex:1}
+.global-pill{display:flex;align-items:center;gap:var(--sp-2);height:30px;padding:0 var(--sp-3);
+  border-radius:var(--r-pill);background:var(--bg-elevated);border:1px solid var(--border);
+  font-size:var(--fs-11);color:var(--text-secondary);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--success);flex:none;
+  box-shadow:0 0 0 3px var(--success-soft)}
+.dot-pulse{animation:pulse 2.2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--success-soft)}50%{box-shadow:0 0 0 6px transparent}}
+.icon-btn{width:34px;height:34px;border-radius:var(--r-sm);display:grid;place-items:center;
+  color:var(--text-secondary);border:1px solid transparent;transition:all var(--dur-fast) var(--ease)}
+.icon-btn:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--border)}
+.icon-btn[aria-pressed="true"]{color:var(--brand);background:var(--brand-soft);border-color:var(--brand-border)}
+.avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:none;
+  font-size:var(--fs-11);font-weight:700;color:var(--text-on-brand);
+  background:linear-gradient(135deg,var(--brand),var(--accent))}
+
+.app-body{flex:1;display:flex;min-height:0}
+.sidebar{width:var(--sidebar-w);flex:none;display:flex;flex-direction:column;
+  background:var(--bg-panel);border-right:1px solid var(--border)}
+.sidebar-head{padding:var(--sp-4) var(--sp-3) var(--sp-2)}
+.search{position:relative;display:flex;align-items:center}
+.search .ico{position:absolute;left:10px;color:var(--text-muted);pointer-events:none}
+.search input{width:100%;height:34px;padding:0 34px 0 32px;border-radius:var(--r-sm);
+  background:var(--bg-elevated);border:1px solid var(--border);outline:none;font-size:var(--fs-12);
+  transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
+.search input::placeholder{color:var(--text-muted)}
+.search input:focus{border-color:var(--border-focus);box-shadow:var(--ring-focus)}
+.kbd{position:absolute;right:8px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);
+  border:1px solid var(--border);border-radius:4px;padding:0 5px;line-height:16px;pointer-events:none}
+.nav-scroll{flex:1;overflow-y:auto;padding:var(--sp-1) var(--sp-2) var(--sp-4)}
+.nav-scroll::-webkit-scrollbar,.workspace::-webkit-scrollbar,.table-wrap::-webkit-scrollbar,
+.params-grid::-webkit-scrollbar{width:8px;height:8px}
+.nav-scroll::-webkit-scrollbar-thumb,.workspace::-webkit-scrollbar-thumb,
+.table-wrap::-webkit-scrollbar-thumb,
+.params-grid::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:8px}
+.nav-group{margin-top:var(--sp-4)}
+.nav-group:first-child{margin-top:var(--sp-2)}
+.nav-group-head{display:flex;align-items:center;gap:var(--sp-2);padding:0 var(--sp-2) var(--sp-2);
+  font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--text-muted)}
+.nav-group-head .bar{width:3px;height:10px;border-radius:2px;background:var(--cat,var(--neutral))}
+.nav-count{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);
+  background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-pill);padding:0 6px}
+.nav-item{position:relative;display:flex;align-items:center;gap:10px;width:100%;height:36px;
+  padding:0 10px 0 12px;border-radius:var(--r-sm);color:var(--text-secondary);text-align:left;
+  transition:background var(--dur-fast),color var(--dur-fast)}
+.nav-item::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:0 3px 3px 0;
+  background:var(--brand);opacity:0;transition:opacity var(--dur-fast)}
+.nav-item:hover{background:var(--bg-hover);color:var(--text-primary)}
+.nav-item.active{background:var(--brand-soft);color:var(--text-primary);font-weight:600}
+.nav-item.active::before{opacity:1}
+.nav-item .ico{color:var(--cat,var(--text-muted))}
+.nav-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-12)}
+/* 侧栏版本号已按设计评审移除，整行宽度留给工具名 */
+.nav-empty{padding:var(--sp-6) var(--sp-3);text-align:center;color:var(--text-muted);font-size:var(--fs-12)}
+.sidebar-foot{flex:none;padding:var(--sp-3) var(--sp-4);border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:6px;font-size:var(--fs-11);color:var(--text-muted)}
+.sidebar-foot .row{display:flex;align-items:center;gap:6px}
+.mini-badge{display:inline-flex;align-items:center;gap:5px;color:var(--success)}
+
+.workspace{flex:1;min-width:0;overflow-y:auto;
+  padding:var(--sp-4) var(--sp-6) var(--sp-5);
+  background-image:linear-gradient(var(--bg-grid) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--bg-grid) 1px,transparent 1px);
+  background-size:32px 32px}
+.workspace-inner{width:100%;max-width:1440px;margin:0 auto}
+/* 输出区固定 340px（对齐现有 OUTPUT_MIN_H=340），表格/图表/日志内部滚动；
+   上方参数与运行条按自然高度完整显示，保证「开始执行」永不被裁切。
+   窗口装不下时整块工作区滚动一次，不做双层嵌套滚动。 */
+.upper{display:block}
+.output-card{height:340px;min-height:340px;margin-top:var(--sp-3);
+  display:flex;flex-direction:column}
+.output-card .tabs{flex:none}
+.output-card .tab-panel{flex:1;min-height:0;display:flex;flex-direction:column;
+  overflow:hidden;padding:var(--sp-4)}
+.output-card .tab-panel > .toolbar{flex:none}
+.output-card .tab-panel > .table-wrap{flex:1;min-height:110px;max-height:none}
+.output-card .tab-panel > .table-foot{flex:none}
+.output-card .tab-panel > .chart-grid-wrap{flex:1;min-height:0;overflow:auto}
+.output-card .tab-panel > .log-box{flex:1;max-height:none}
+.output-card .tab-panel > .summary-grid{flex:1;min-height:0;overflow:auto}
+.output-card .tab-panel > .path-box{flex:none}
+
+/* ============================ Head ============================ */
+.crumb{display:flex;align-items:center;gap:7px;font-size:var(--fs-11);color:var(--text-muted);margin-bottom:var(--sp-3)}
+.crumb .ico{width:12px;height:12px}
+.tool-head{display:flex;align-items:flex-start;gap:var(--sp-4);margin-bottom:var(--sp-4)}
+.tool-head-main{flex:1;min-width:0}
+.title-row{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+h1{font-size:var(--fs-20);font-weight:700;letter-spacing:-.01em;margin:0;line-height:var(--lh-tight)}
+.chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:var(--r-pill);
+  font-size:var(--fs-11);font-weight:600;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary)}
+.chip-cat{color:var(--cat);background:var(--brand-soft);border-color:var(--brand-border);
+  background:color-mix(in srgb,var(--cat) 12%,transparent);
+  border-color:color-mix(in srgb,var(--cat) 30%,transparent)}
+/* 工具头的版本 / ID 徽章已按设计评审移除，只保留分类徽章 */
+.tool-desc{margin:8px 0 0;color:var(--text-secondary);font-size:var(--fs-12);line-height:var(--lh-loose);max-width:880px}
+.head-actions{display:flex;gap:var(--sp-2);flex:none}
+
+/* ============================ Buttons ============================ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;
+  border-radius:var(--r-sm);font-size:var(--fs-12);font-weight:600;white-space:nowrap;
+  border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-secondary);
+  transition:all var(--dur-fast) var(--ease)}
+.btn:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--border-strong)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn-primary{background:var(--brand);color:var(--text-on-brand);border-color:var(--brand)}
+.btn-primary:hover{background:var(--brand-hover);color:var(--text-on-brand);border-color:var(--brand-hover)}
+.btn-danger-outline{color:var(--danger);border-color:var(--danger-border);background:var(--danger-soft)}
+.btn-danger-outline:hover{background:var(--danger);color:var(--text-on-danger);border-color:var(--danger)}
+.btn-ghost{background:transparent;border-color:transparent}
+.btn-ghost:hover{background:var(--bg-hover);border-color:transparent}
+.btn-sm{height:28px;padding:0 10px;font-size:var(--fs-11)}
+.btn-icon{width:30px;padding:0}
+
+/* ============================ KPI ============================ */
+.kpi-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-3);margin-bottom:var(--sp-3)}
+.kpi{position:relative;overflow:hidden;padding:11px var(--sp-4) 10px;border-radius:var(--r-md);
+  background:var(--bg-surface);border:1px solid var(--border);box-shadow:var(--shadow-sm)}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--tone,var(--brand));opacity:.85}
+.kpi-label{display:flex;align-items:center;gap:6px;font-size:var(--fs-11);color:var(--text-muted)}
+.kpi-label .ico{width:13px;height:13px;color:var(--tone,var(--brand))}
+.kpi-value{font-family:var(--font-mono);font-size:var(--fs-26);font-weight:700;line-height:1.2;
+  margin-top:7px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi-sub{margin-top:2px;font-size:var(--fs-11);color:var(--text-muted)}
+.kpi-sub .up{color:var(--danger)} .kpi-sub .down{color:var(--success)}
+
+/* ============================ Cards ============================ */
+.card{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--r-md);
+  box-shadow:var(--shadow-sm);overflow:hidden}
+.card + .card{margin-top:var(--sp-3)}
+.card-head{display:flex;align-items:center;gap:var(--sp-2);padding:11px var(--sp-4);
+  border-bottom:1px solid var(--border);min-height:44px}
+.card-head .ico{color:var(--brand)}
+.card-title{font-size:var(--fs-13);font-weight:700}
+.card-note{font-size:var(--fs-11);color:var(--text-muted);margin-left:4px}
+.card-head .spacer{flex:1}
+
+/* ============================ Params ============================ */
+.params-body{max-height:290px;overflow-y:auto;transition:max-height var(--dur-slow) var(--ease)}
+.params-body.folded{max-height:0;overflow:hidden}
+.params-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4) var(--sp-6);
+  padding:var(--sp-4)}
+.field{min-width:0}
+.field-label{display:flex;align-items:center;gap:5px;margin-bottom:6px;font-size:var(--fs-12);
+  font-weight:600;color:var(--text-secondary)}
+.req{color:var(--danger);font-weight:700}
+.help-dot{width:13px;height:13px;border-radius:50%;border:1px solid var(--border-strong);
+  display:inline-grid;place-items:center;font-family:var(--font-mono);font-size:9px;
+  color:var(--text-muted);cursor:help;position:relative}
+.help-dot:hover{color:var(--brand);border-color:var(--brand)}
+.help-dot .tip{display:none;position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);
+  width:230px;padding:9px 11px;border-radius:var(--r-sm);font-size:var(--fs-11);font-weight:400;
+  line-height:1.6;color:var(--text-primary);background:var(--bg-elevated);
+  border:1px solid var(--border-strong);box-shadow:var(--shadow-md);z-index:20;white-space:normal}
+.help-dot:hover .tip,.help-dot:focus .tip{display:block}
+.input,.select{width:100%;height:34px;padding:0 10px;border-radius:var(--r-sm);outline:none;
+  background:var(--bg-elevated);border:1px solid var(--border);font-size:var(--fs-12);
+  transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
+.input::placeholder{color:var(--text-muted)}
+.input:focus,.select:focus{border-color:var(--border-focus);box-shadow:var(--ring-focus)}
+.select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--text-muted) 50%),
+  linear-gradient(135deg,var(--text-muted) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 15px,calc(100% - 10px) 15px;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:28px}
+.input-group{display:flex;gap:6px}
+.input-group .input{flex:1;min-width:0}
+.field-hint{margin-top:5px;font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:5px}
+.field-hint.ok{color:var(--success)}
+.toggle-row{display:flex;align-items:center;gap:10px;height:34px}
+.toggle{width:36px;height:20px;border-radius:var(--r-pill);background:var(--bg-active);
+  border:1px solid var(--border-strong);position:relative;flex:none;transition:background var(--dur-fast)}
+.toggle::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;
+  background:var(--text-muted);transition:transform var(--dur-fast) var(--ease),background var(--dur-fast)}
+.toggle[aria-checked="true"]{background:var(--brand);border-color:var(--brand)}
+.toggle[aria-checked="true"]::after{transform:translateX(16px);background:var(--text-on-brand)}
+.toggle-txt{font-size:var(--fs-12);color:var(--text-secondary)}
+.sched-bar{display:flex;align-items:center;gap:var(--sp-2);padding:10px var(--sp-4);
+  border-top:1px solid var(--border);background:var(--bg-elevated);flex-wrap:wrap}
+.sched-bar .label{font-size:var(--fs-11);color:var(--text-muted);display:flex;align-items:center;gap:6px}
+.sched-bar .input{width:76px;height:28px;text-align:center;font-family:var(--font-mono)}
+
+/* ============================ Run bar ============================ */
+.run-bar{display:flex;align-items:center;gap:var(--sp-2);padding:12px var(--sp-4);
+  margin-top:var(--sp-3);border-radius:var(--r-md);background:var(--bg-surface);
+  border:1px solid var(--border);box-shadow:var(--shadow-sm);flex-wrap:wrap}
+.run-progress{margin-left:auto;display:flex;align-items:center;gap:var(--sp-3);min-width:330px;flex:1;
+  justify-content:flex-end}
+.progress-meta{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:132px}
+.progress-num{font-family:var(--font-mono);font-size:var(--fs-14);font-weight:700}
+.progress-item{font-size:10px;color:var(--text-muted);max-width:180px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.track{width:100%;max-width:240px;height:7px;border-radius:var(--r-pill);
+  background:var(--bg-inset);border:1px solid var(--border);overflow:hidden;flex:none}
+.fill{height:100%;width:0%;border-radius:var(--r-pill);
+  background:linear-gradient(90deg,var(--brand),var(--accent));transition:width var(--dur-fast) linear}
+
+/* ============================ Tabs ============================ */
+.tabs{display:flex;align-items:stretch;gap:2px;padding:0 var(--sp-3);border-bottom:1px solid var(--border);
+  background:var(--bg-surface);overflow-x:auto}
+.tab{display:flex;align-items:center;gap:7px;height:42px;padding:0 var(--sp-3);position:relative;
+  font-size:var(--fs-12);font-weight:600;color:var(--text-muted);white-space:nowrap}
+.tab:hover{color:var(--text-primary);background:var(--bg-hover)}
+.tab[aria-selected="true"]{color:var(--brand)}
+.tab[aria-selected="true"]::after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;
+  height:2px;border-radius:2px 2px 0 0;background:var(--brand)}
+.tab .ico{width:14px;height:14px}
+.tab-count{font-family:var(--font-mono);font-size:10px;padding:0 5px;border-radius:var(--r-pill);
+  background:var(--bg-elevated);border:1px solid var(--border);line-height:16px;color:var(--text-muted)}
+.tab-panel{padding:var(--sp-4);min-height:300px}
+
+/* ============================ Toolbar / Table ============================ */
+.toolbar{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap}
+.segmented{display:inline-flex;padding:2px;border-radius:var(--r-sm);background:var(--bg-elevated);
+  border:1px solid var(--border)}
+.seg{height:26px;padding:0 11px;border-radius:4px;font-size:var(--fs-11);color:var(--text-muted)}
+.seg[aria-pressed="true"]{background:var(--bg-active);color:var(--text-primary);font-weight:600}
+.mini-search{position:relative;display:flex;align-items:center;width:190px}
+.mini-search .ico{position:absolute;left:9px;width:13px;height:13px;color:var(--text-muted)}
+.mini-search input{width:100%;height:30px;padding:0 8px 0 28px;border-radius:var(--r-sm);outline:none;
+  background:var(--bg-elevated);border:1px solid var(--border);font-size:var(--fs-11)}
+.mini-search input:focus{border-color:var(--border-focus);box-shadow:var(--ring-focus)}
+.font-ctl{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--border);
+  border-radius:var(--r-sm);background:var(--bg-elevated);padding:2px}
+.font-ctl button{width:24px;height:24px;border-radius:4px;font-family:var(--font-mono);
+  font-size:var(--fs-11);color:var(--text-secondary)}
+.font-ctl button:hover{background:var(--bg-hover);color:var(--text-primary)}
+.font-ctl span{font-size:10px;color:var(--text-muted);padding:0 4px}
+.table-wrap{overflow:auto;max-height:330px;border:1px solid var(--border);border-radius:var(--r-sm);
+  background:var(--bg-inset)}
+table{width:100%;border-collapse:collapse;font-size:var(--table-fs,12.5px)}
+thead th{position:sticky;top:0;z-index:2;text-align:left;padding:9px 12px;white-space:nowrap;
+  font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-muted);background:var(--bg-elevated);border-bottom:1px solid var(--border)}
+thead th.num{text-align:right}
+tbody td{padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap;
+  color:var(--text-secondary)}
+tbody tr:nth-child(even){background:rgba(127,160,200,.035)}
+tbody tr:hover{background:var(--bg-hover)}
+tbody tr:last-child td{border-bottom:0}
+tbody td.num{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+tbody tr.fail td:first-child{box-shadow:inset 2px 0 0 var(--danger)}
+tbody tr.fail{background:var(--danger-soft)}
+.cell-strong{color:var(--text-primary);font-weight:600}
+.pos{color:var(--danger);font-weight:600} .neg{color:var(--success);font-weight:600}
+.status-chip{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;
+  border-radius:var(--r-pill);font-size:10px;font-weight:600;white-space:nowrap}
+.status-chip::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.st-ok{color:var(--success);background:var(--success-soft);border:1px solid var(--success-border)}
+.st-partial{color:var(--warning);background:var(--warning-soft);border:1px solid var(--warning-border)}
+.st-fail{color:var(--danger);background:var(--danger-soft);border:1px solid var(--danger-border)}
+.st-info{color:var(--info);background:var(--info-soft);border:1px solid var(--info-border)}
+.st-idle{color:var(--neutral);background:var(--neutral-soft);border:1px solid var(--border)}
+.empty-row td{text-align:center;color:var(--text-muted);padding:var(--sp-8)}
+.table-foot{display:flex;justify-content:space-between;align-items:center;margin-top:9px;
+  font-size:var(--fs-11);color:var(--text-muted)}
+
+/* ============================ Chart ============================ */
+.chart-grid-wrap{display:grid;grid-template-columns:1.45fr 1fr;gap:var(--sp-4)}
+.chart-box{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-inset);padding:var(--sp-4)}
+.chart-title{font-size:var(--fs-12);font-weight:700;margin:0 0 2px}
+.chart-sub{font-size:10px;color:var(--text-muted);margin-bottom:var(--sp-4)}
+.bar-row{display:grid;grid-template-columns:132px 1fr 78px;align-items:center;gap:10px;margin-bottom:9px}
+.bar-label{font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-track{height:16px;border-radius:3px;background:var(--bg-elevated);position:relative;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--chart-bar),var(--chart-bar-alt));
+  transform-origin:left;animation:grow .7s var(--ease) both}
+.bar-fill.bad{background:linear-gradient(90deg,var(--chart-bad),#fbbf24)}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.bar-val{font-family:var(--font-mono);font-size:10px;text-align:right;color:var(--text-primary)}
+.axis{display:flex;justify-content:space-between;margin-top:var(--sp-3);padding-left:142px;
+  font-family:var(--font-mono);font-size:9px;color:var(--chart-axis)}
+.axis span{flex:1;text-align:center;border-left:1px solid var(--chart-grid)}
+.trend-svg{width:100%;height:132px;display:block}
+.legend{display:flex;gap:var(--sp-4);margin-top:var(--sp-3);font-size:10px;color:var(--text-muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+.risk-list{display:flex;flex-direction:column;gap:8px;margin-top:var(--sp-4)}
+.risk-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r-sm);
+  background:var(--danger-soft);border:1px solid var(--danger-border)}
+.risk-item .ico{color:var(--danger);width:14px;height:14px}
+.risk-name{font-family:var(--font-mono);font-size:11px;color:var(--text-primary);flex:1}
+.risk-meta{font-size:10px;color:var(--danger);font-weight:600}
+
+/* ============================ Log ============================ */
+.log-box{background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--r-sm);
+  padding:var(--sp-3);max-height:310px;overflow:auto;font-family:var(--font-mono);font-size:11.5px}
+.log-line{display:flex;gap:10px;padding:3px 6px;border-radius:3px;line-height:1.65}
+.log-line:hover{background:var(--bg-hover)}
+.log-ts{color:var(--text-muted);flex:none}
+.log-lvl{flex:none;width:52px;font-weight:700}
+.lv-info{color:var(--info)} .lv-warn{color:var(--warning)} .lv-error{color:var(--danger)}
+.log-ip{color:var(--accent);flex:none;width:112px}
+.log-msg{color:var(--text-secondary);word-break:break-all}
+.log-sep{color:var(--brand);margin:5px 0}
+
+/* ============================ Summary ============================ */
+.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)}
+.summary-block{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-inset);
+  padding:var(--sp-4)}
+.summary-block h3{font-size:var(--fs-12);margin:0 0 var(--sp-3);display:flex;align-items:center;gap:7px}
+.summary-block h3 .ico{color:var(--brand);width:14px;height:14px}
+.kv{display:flex;justify-content:space-between;gap:var(--sp-4);padding:6px 0;
+  border-bottom:1px dashed var(--border);font-size:var(--fs-12)}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--text-muted)} .kv .v{color:var(--text-primary);font-weight:600}
+.kv .v.mono{font-weight:500}
+.reason-row{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.reason-name{width:118px;font-size:var(--fs-11);color:var(--text-secondary)}
+.reason-track{flex:1;height:8px;border-radius:var(--r-pill);background:var(--bg-elevated);overflow:hidden}
+.reason-fill{height:100%;border-radius:var(--r-pill);background:var(--danger)}
+.reason-num{width:28px;text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--text-primary)}
+.path-box{margin-top:var(--sp-3);padding:9px 11px;border-radius:var(--r-sm);background:var(--bg-elevated);
+  border:1px solid var(--border);font-family:var(--font-mono);font-size:11px;
+  color:var(--text-secondary);word-break:break-all}
+
+/* ============================ Statusbar ============================ */
+.statusbar{height:var(--statusbar-h);flex:none;display:flex;align-items:center;gap:var(--sp-3);
+  padding:0 var(--sp-5);background:var(--bg-panel);border-top:1px solid var(--border);
+  font-size:var(--fs-11);color:var(--text-muted);z-index:5}
+.state-badge{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px;
+  border-radius:var(--r-pill);font-weight:600;font-size:10px}
+.sb-idle{color:var(--neutral);background:var(--neutral-soft)}
+.sb-run{color:var(--brand);background:var(--brand-soft)}
+.sb-ok{color:var(--success);background:var(--success-soft)}
+.sb-partial{color:var(--warning);background:var(--warning-soft)}
+.sb-fail{color:var(--danger);background:var(--danger-soft)}
+.statusbar .mono{color:var(--text-secondary)}
+
+/* ============================ Responsive / Motion ============================ */
+@media(max-width:1180px){
+  :root{--sidebar-w:232px}
+  .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .chart-grid-wrap{grid-template-columns:1fr}
+  .run-progress{min-width:240px}
+}
+@media(max-width:900px){
+  .sidebar{display:none}
+  .params-grid{grid-template-columns:1fr}
+  .summary-grid{grid-template-columns:1fr}
+  .global-pill{display:none}
+}
+@media(max-width:620px){
+  .kpi-row{grid-template-columns:1fr 1fr}
+  .workspace{padding:var(--sp-4)}
+  .head-actions{display:none}
+  .run-progress{width:100%;justify-content:flex-start}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ SVG icon sprite ============ -->
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-logo" viewBox="0 0 32 32"><path d="M16 3.5 27 9.8v12.4L16 28.5 5 22.2V9.8Z"/><circle cx="16" cy="16" r="3.2"/><path d="M16 3.5v9.3M27 9.8l-8.3 5.1M27 22.2l-8.3-5.1M16 28.5v-9.3M5 22.2l8.3-5.1M5 9.8l8.3 5.1"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4.3-4.3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9-9M17 6l2.5 2.5M14.5 8.5 17 11"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 3.8 13 8.2-13 8.2Z"/></symbol>
+  <symbol id="i-square" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9-5-18-3 9H2"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3M3 12h18"/></symbol>
+  <symbol id="i-calc" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.2 8 11 4.6-1.8 8-6 8-11V5Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
+  <symbol id="i-beaker" viewBox="0 0 24 24"><path d="M9 2h6M10 2v6L4.5 18a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 8V2M7 14h10"/></symbol>
+  <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"/></symbol>
+  <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 4V2h6v2M9 10h6M9 14h6M9 18h4"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M21 3H3l7 9.5V19l4 2v-8.5Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3M20 4v7h-7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5ZM3 12l9 5 9-5M3 17l9 5 9-5"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7Z"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M6 7h.01M6 17h.01M10 7h7M10 17h7"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-10 10M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></symbol>
+</svg>
+
+<div class="app-shell">
+  <!-- ============ App bar ============ -->
+  <header class="appbar">
+    <div class="brand">
+      <div class="brand-mark"><svg class="ico"><use href="#i-logo"/></svg></div>
+      <div class="brand-txt"><span class="brand-cn">网络运维工具箱</span><span class="brand-en">NETOPS TOOLKIT</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="global-pill"><span class="dot dot-pulse"></span>调度器运行中 · 下次 <span class="mono" style="margin-left:4px">08:30</span></div>
+    <button class="icon-btn" id="themeBtn" aria-label="切换深浅主题" title="切换深浅主题"><svg class="ico ico-lg" id="themeIcon"><use href="#i-sun"/></svg></button>
+    <button class="icon-btn" aria-label="凭证管理" title="凭证管理"><svg class="ico ico-lg"><use href="#i-key"/></svg></button>
+    <button class="icon-btn" aria-label="定时任务总览" title="定时任务总览"><svg class="ico ico-lg"><use href="#i-clock"/></svg></button>
+    <button class="icon-btn" aria-label="关于" title="关于"><svg class="ico ico-lg"><use href="#i-info"/></svg></button>
+    <div class="vr"></div>
+    <div class="avatar" title="操作者">OP</div>
+  </header>
+
+  <div class="app-body">
+    <!-- ============ Sidebar ============ -->
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <div class="search">
+          <svg class="ico"><use href="#i-search"/></svg>
+          <input id="navSearch" type="search" placeholder="搜索工具名称或 ID" aria-label="搜索工具">
+          <span class="kbd">/</span>
+        </div>
+      </div>
+      <nav class="nav-scroll" id="nav" aria-label="工具导航"></nav>
+      <div class="sidebar-foot">
+        <div class="row mini-badge"><svg class="ico ico-sm"><use href="#i-check"/></svg><span id="toolCount">12 个工具已注册</span></div>
+        <div class="row"><svg class="ico ico-sm"><use href="#i-layers"/></svg><span>插件式注册 · 丢进 tools/ 即可出现</span></div>
+        <div class="row"><svg class="ico ico-sm"><use href="#i-info"/></svg><span>F11 全屏 · Ctrl+滚轮 调整字号</span></div>
+      </div>
+    </aside>
+
+    <!-- ============ Workspace ============ -->
+    <main class="workspace">
+      <div class="workspace-inner">
+        <div class="upper">
+        <div class="crumb">
+          <svg class="ico"><use href="#i-layers"/></svg><span>工具箱</span>
+          <svg class="ico"><use href="#i-chevron-right"/></svg><span id="crumbCat">采集分析类</span>
+          <svg class="ico"><use href="#i-chevron-right"/></svg><span id="crumbName" style="color:var(--text-primary)">接口信息采集</span>
+        </div>
+
+        <div class="tool-head">
+          <div class="tool-head-main">
+            <div class="title-row">
+              <h1 id="toolName">接口信息采集</h1>
+              <span class="chip chip-cat" id="catChip">采集分析类</span>
+            </div>
+            <p class="tool-desc" id="toolDesc"></p>
+          </div>
+          <div class="head-actions">
+            <button class="btn btn-sm" aria-label="打开结果目录"><svg class="ico ico-sm"><use href="#i-external"/></svg>结果目录</button>
+            <button class="btn btn-sm" aria-label="参数模板"><svg class="ico ico-sm"><use href="#i-sliders"/></svg>参数模板</button>
+          </div>
+        </div>
+
+        <div class="kpi-row" id="kpiRow"></div>
+
+        <!-- Params -->
+        <section class="card">
+          <div class="card-head">
+            <svg class="ico"><use href="#i-sliders"/></svg>
+            <span class="card-title">运行参数</span>
+            <span class="card-note" id="paramNote"></span>
+            <div class="spacer"></div>
+            <button class="btn btn-sm btn-ghost" id="foldBtn" aria-expanded="true">
+              <svg class="ico ico-sm" style="transition:transform var(--dur-fast)" id="foldIcon"><use href="#i-chevron-down"/></svg>
+              <span id="foldText">收起</span>
+            </button>
+          </div>
+          <div class="params-body" id="paramsBody"><div class="params-grid" id="paramsGrid"></div></div>
+          <div class="sched-bar">
+            <span class="label"><svg class="ico ico-sm"><use href="#i-clock"/></svg>定时执行</span>
+            <input class="input mono" value="08:30" aria-label="定时执行时间">
+            <button class="toggle" role="switch" aria-checked="true" aria-label="启用定时执行"></button>
+            <span class="sec" style="font-size:11px">每日 08:30 · 上次成功 11-12 08:32</span>
+            <div class="spacer"></div>
+            <button class="btn btn-sm">查看结果</button>
+            <button class="btn btn-sm">立即执行</button>
+            <button class="btn btn-sm">总览…</button>
+          </div>
+        </section>
+
+        <!-- Run bar -->
+        <div class="run-bar">
+          <button class="btn btn-primary" id="startBtn"><svg class="ico ico-sm"><use href="#i-play"/></svg><span id="startText">开始执行</span></button>
+          <button class="btn btn-danger-outline" id="cancelBtn" disabled><svg class="ico ico-sm"><use href="#i-square"/></svg>中止</button>
+          <button class="btn"><svg class="ico ico-sm"><use href="#i-folder"/></svg>打开结果目录</button>
+          <div class="run-progress">
+            <div class="progress-meta">
+              <span class="progress-num" id="progressNum">待运行</span>
+              <span class="progress-item" id="progressItem">尚未启动任务</span>
+            </div>
+            <div class="track"><div class="fill" id="progressFill"></div></div>
+          </div>
+        </div>
+
+        </div><!-- /.upper -->
+
+        <!-- Output -->
+        <section class="card output-card">
+          <div class="tabs" id="tabs" role="tablist" aria-label="输出视图"></div>
+          <div class="tab-panel" id="tabPanel" role="tabpanel"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ Status bar ============ -->
+  <footer class="statusbar">
+    <span class="state-badge sb-idle" id="stateBadge"><span class="dot" style="background:currentColor;box-shadow:none"></span>空闲</span>
+    <span id="statusStat">尚未运行任务</span>
+    <div class="spacer"></div>
+    <span><svg class="ico ico-sm" style="vertical-align:-3px;margin-right:4px"><use href="#i-clock"/></svg>每日流水线 08:30 · 已启用</span>
+    <div class="vr" style="height:14px"></div>
+    <span class="mono" id="statusPath" style="max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="结果目录">output/iface_collect/20261112_083012_a7f3c1</span>
+  </footer>
+</div>
+
+
+<script>
+/* ============================================================
+   Data：全部来自 network-toolkit 真实工具契约（tools/*.py）
+   ============================================================ */
+var CAT = {
+  "采集分析类": {icon:"i-activity", color:"var(--cat-collect)"},
+  "解析类":     {icon:"i-scan",     color:"var(--cat-parse)"},
+  "工具类":     {icon:"i-calc",     color:"var(--cat-utility)"},
+  "检查类":     {icon:"i-shield",   color:"var(--cat-check)"},
+  "会话管理类": {icon:"i-terminal", color:"var(--cat-session)"},
+  "示例":       {icon:"i-beaker",   color:"var(--cat-demo)"}
+};
+var P = function(k,l,t,extra){var o={key:k,label:l,type:t};for(var x in extra){o[x]=extra[x]}return o};
+
+var TOOLS = [
+  {id:"iface_collect", name:"接口信息采集", ver:"1.4.0", cat:"采集分析类",
+   desc:"批量登录设备采集接口原始数据（含迪普/烽火），落盘到结果目录；可同时归档成 <日期>/<设备名>.log，供「接口CRC对比分析」直接消费",
+   params:[P("devices","设备清单","device_list",{required:true,help:"需含 IP、厂商、凭证列；支持 xlsx / csv / txt",hint:"已加载 243 台 · 2 条提示"}),
+           P("concurrency","并发数","int",{value:"5",range:"1 – 50"}),
+           P("timeout","超时(秒)","int",{value:"40",range:"5 – 300"}),
+           P("archive_dir","按日期归档目录（可选）","dir",{help:"结果同时写成 <目录>/<YYYY-MM-DD>/<设备名>.log，CRC 对比可直接把日期目录作为今日/昨日目录"}),
+           P("backup_config","同时备份配置","bool",{checked:true,help:"在同一次登录里再取一份配置，不用额外再登一遍设备"}),
+           P("backup_dir","配置备份目录","dir",{help:"「同时备份配置」时配置保存的位置"})],
+   tabs:["result","log","summary"],
+   columns:["IP","设备名","厂商","状态","耗时(ms)","字符数","失败原因"],
+   rows:[["10.24.8.11","CORE-SW-01","华为","成功","1,284","42,918",""],
+         ["10.24.8.12","CORE-SW-02","华为","成功","1,106","41,552",""],
+         ["10.24.8.21","ACC-H3C-07","华三","成功","986","38,204",""],
+         ["10.24.8.33","ACC-ZTE-12","中兴","部分成功","2,410","28,661","分页符截断"],
+         ["10.24.8.47","FW-FH-03","烽火","成功","1,872","35,117",""],
+         ["10.24.8.58","FW-DP-02","迪普","失败","—","—","连接超时"],
+         ["10.24.8.64","ACC-RJ-19","锐捷","成功","1,043","39,880",""],
+         ["10.24.8.71","EDGE-CS-04","思科","失败","—","—","认证失败"]],
+   kpi:[["设备总数","243","台","var(--brand)","i-server","本次清单已加载"],
+        ["成功","231","台","var(--success)","i-check","成功率 95.1%"],
+        ["失败 / 部分","12","台","var(--danger)","i-alert","含 4 台认证失败"],
+        ["耗时","03:42","","var(--accent)","i-clock","平均 0.91s / 台"]]},
+
+  {id:"batch_backup", name:"设备配置备份", ver:"1.2.0", cat:"采集分析类",
+   desc:"批量登录设备抓取配置并保存到结果目录；可按日期归档留档",
+   params:[P("devices","设备清单","device_list",{required:true,help:"需含 IP、厂商、凭证列",hint:"已加载 243 台"}),
+           P("concurrency","并发数","int",{value:"8",range:"1 – 50"}),
+           P("timeout","超时(秒)","int",{value:"45",range:"5 – 300"}),
+           P("archive_dir","按日期归档目录","dir",{help:"留档目录，按 <YYYY-MM-DD> 分文件夹"})],
+   tabs:["result","log","summary"],
+   columns:["IP","设备名","厂商","状态","耗时(ms)","文件大小","失败原因"],
+   kpi:[["设备总数","243","台","var(--brand)","i-server","本次清单已加载"],["成功","239","台","var(--success)","i-check","成功率 98.4%"],["失败","4","台","var(--danger)","i-alert","2 台认证失败"],["配置总量","86.4","MB","var(--accent)","i-database","平均 361 KB / 台"]]},
+
+  {id:"iface_desc", name:"接口描述采集", ver:"1.0.0", cat:"采集分析类",
+   desc:"批量采集设备接口描述（聚合口），导出 Excel",
+   params:[P("devices","设备清单","device_list",{required:true,help:"需含 IP、厂商、凭证列"}),
+           P("concurrency","并发数","int",{value:"5",range:"1 – 50"}),
+           P("out_dir","结果输出目录（可选）","dir",{help:"填了就把 Excel 另存一份到该目录"})],
+   tabs:["result","log","summary"],
+   columns:["设备名","IP","本地接口","接口描述","状态","失败原因"],
+   kpi:[["设备总数","186","台","var(--brand)","i-server","本次清单已加载"],["接口数","4,128","条","var(--accent)","i-layers","含 312 个聚合口"],["缺失描述","57","条","var(--warning)","i-alert","占比 1.4%"],["耗时","02:18","","var(--success)","i-clock","平均 0.74s / 台"]]},
+
+  {id:"crc_compare", name:"接口CRC对比分析", ver:"1.1.1", cat:"采集分析类",
+   desc:"对比昨日/今日接口采集日志，按接口汇总 CRC 值并计算差值（结果按日期落盘，供趋势分析）",
+   params:[P("auto_root","自动取最近两日（根目录，可选）","dir",{help:"自动取该根目录下最近两个日期子目录，定时任务建议用这个"}),
+           P("yesterday_dir","昨日日志目录","dir",{help:"时间1（昨日）接口采集日志目录"}),
+           P("today_dir","今日日志目录","dir",{help:"时间2（今日）接口采集日志目录"}),
+           P("out_dir","结果输出目录（可选）","dir",{help:"Excel 另存到该目录，按日期命名 CRC对比_YYYY-MM-DD.xlsx"})],
+   tabs:["result","log","summary"],
+   columns:["设备名称","接口名称","今日CRC值","昨日CRC值","CRC差值","厂商","备注","状态","失败原因"],
+   rows:[["CORE-SW-01","cgei-0/1/1/49","6,574,201","4,281,033","+2,293,168","华为","持续增长","成功",""],
+         ["ACC-H3C-07","GE1/0/24","842,660","501,224","+341,436","华三","","成功",""],
+         ["FW-FH-03","eth-0/3","128,904","95,610","+33,294","烽火","","成功",""],
+         ["ACC-ZTE-12","gei-1/2","14,208","17,905","-3,697","中兴","已恢复","成功",""],
+         ["FW-DP-02","eth1/1","0","0","0","迪普","无数据","部分成功",""],
+         ["EDGE-CS-04","Gi0/0/1","—","—","—","思科","","失败","解析失败"]],
+   kpi:[["对比接口","1,842","条","var(--brand)","i-layers","覆盖 243 台设备"],["CRC 增长","317","条","var(--danger)","i-activity","占比 17.2%"],["最大单日增量","+229","万","var(--danger)","i-zap","CORE-SW-01 cgei-0/1/1/49"],["已恢复","46","条","var(--success)","i-check","差值转负"]]},
+
+  {id:"crc_trend", name:"CRC趋势分析", ver:"1.4.1", cat:"采集分析类",
+   desc:"基于历史 CRC 对比结果，生成单日差值排行、厂商/设备排行、多接口走势与持续恶化识别图（界面内实时显示）",
+   params:[P("date","分析日期","choice",{options:["2026-11-12（最新）","2026-11-11","2026-11-10","2026-11-09"],help:"排行图统计的是「这一天」的 CRC 增量"}),
+           P("show_global","全局 TopN 排行图","bool",{checked:true,help:"生成一张跨设备的接口 CRC 差值排行条形图"}),
+           P("show_worsening","持续恶化接口图","bool",{checked:true,help:"列出最近连续 N 天 CRC 都在增长的接口"}),
+           P("worsen_days","连续增长天数 N","int",{value:"3",range:"2 – 30"}),
+           P("show_vendor","按厂商排行图","bool",{checked:false}),
+           P("show_device","按设备排行图","bool",{checked:false}),
+           P("device","设备（按设备图/走势图）","choice",{options:["（自动取差值最大）","CORE-SW-01","ACC-H3C-07"],help:"留空则自动取差值最大的前 N 台"}),
+           P("max_devices","按设备图最大台数","int",{value:"5",range:"1 – 30"}),
+           P("show_trend","走势图","bool",{checked:false}),
+           P("iface","接口名称（可逗号分隔多个）","text",{placeholder:"如 cgei-0/1/1/49 或 GE1,GE2"}),
+           P("top_n","TopN 数量","int",{value:"20",range:"1 – 100"}),
+           P("log_axis","对数坐标(X轴)","bool",{checked:true,help:"CRC 差值跨 3~4 个数量级，对数坐标能同时看清大值和小值"})],
+   tabs:["chart","log","summary"],
+   columns:["说明","状态","失败原因"],
+   kpi:[["历史天数","28","天","var(--brand)","i-database","2026-10-16 → 11-12"],["图表","6","张","var(--accent)","i-chart","本次生成"],["持续恶化","9","个接口","var(--danger)","i-alert","连续 ≥3 天增长"],["最大累计增量","+1,842","万","var(--warning)","i-zap","CORE-SW-01"]]},
+
+  {id:"ip_extract", name:"接口IP/管理口提取", ver:"1.0.0", cat:"解析类",
+   desc:"离线解析设备配置文件，提取接口IP/CIDR、VRRP网关或管理口/环回口地址，导出 Excel",
+   params:[P("src_dir","配置文件目录","dir",{required:true,help:"存放 .cfg / .log 的目录"}),
+           P("mode","提取模式","choice",{options:["全部接口IP","仅管理口 / 环回口","VRRP 网关"]}),
+           P("out_dir","结果输出目录","dir",{})],
+   tabs:["result","log","summary"],
+   columns:["设备名","厂商","接口","地址段","网关","IP版本","网关类型","状态","失败原因"],
+   kpi:[["配置文件","243","份","var(--brand)","i-folder","离线解析，不连设备"],["地址段","3,106","条","var(--accent)","i-layers","IPv4 2,984 / IPv6 122"],["网关","412","个","var(--info)","i-server","含 VRRP 87 个"],["解析异常","6","份","var(--warning)","i-alert","编码 / 格式问题"]]},
+
+  {id:"session_extract", name:"会话信息提取", ver:"1.0.0", cat:"解析类",
+   desc:"从 SecureCRT .ini 会话文件提取 Username/Hostname 等信息，导出 Excel",
+   params:[P("src_dir","会话目录","dir",{required:true,help:"SecureCRT Sessions 目录"}),
+           P("recursive","包含子目录","bool",{checked:true}),
+           P("out_dir","结果输出目录","dir",{})],
+   tabs:["result","log","summary"],
+   columns:["文件名","Username","Hostname","状态","失败原因"],
+   kpi:[["会话文件","612","份","var(--brand)","i-folder","含 8 个子目录"],["成功提取","608","份","var(--success)","i-check","成功率 99.3%"],["缺失字段","4","份","var(--warning)","i-alert","无 Hostname"],["耗时","00:04","","var(--accent)","i-clock","纯离线解析"]]},
+
+  {id:"ip_calc", name:"IP/CIDR转换计算", ver:"1.0.0", cat:"工具类",
+   desc:"批量把「IP 掩码」或「IP/CIDR」转换为 CIDR 格式并计算网络地址",
+   params:[P("input","待转换内容","text",{required:true,placeholder:"每行一条，如 10.24.8.0 255.255.255.0",help:"支持 IP+掩码、IP/CIDR 混合输入"}),
+           P("ip_version","IP 版本","choice",{options:["自动识别","仅 IPv4","仅 IPv6"]}),
+           P("dedup","结果去重","bool",{checked:true})],
+   tabs:["result","log","summary"],
+   columns:["行号","原始输入","IP版本","CIDR格式","网络地址","状态","失败原因"],
+   kpi:[["输入行","128","条","var(--brand)","i-table","混合格式"],["成功转换","124","条","var(--success)","i-check","成功率 96.9%"],["失败","4","条","var(--danger)","i-alert","非法掩码"],["去重后","118","条","var(--accent)","i-layers","合并 6 条重复"]]},
+
+  {id:"zte_check", name:"中兴交换机合规检查", ver:"1.0.0", cat:"检查类",
+   desc:"检查中兴交换机接口描述规范与 SNMP 配置合规性",
+   params:[P("src_dir","配置文件目录","dir",{required:true}),
+           P("check_desc","检查接口描述规范","bool",{checked:true}),
+           P("check_snmp","检查 SNMP 配置","bool",{checked:true}),
+           P("out_dir","结果输出目录","dir",{})],
+   tabs:["result","log","summary"],
+   columns:["IP","设备名","检查项","状态","详情","失败原因"],
+   kpi:[["受检设备","86","台","var(--brand)","i-server","中兴 ZXROS"],["检查项","1,204","条","var(--accent)","i-clipboard","描述 + SNMP"],["不合规","73","条","var(--danger)","i-alert","占比 6.1%"],["合规率","93.9","%","var(--success)","i-shield","环比 +1.2%"]]},
+
+  {id:"session_rename", name:"会话Hostname修改", ver:"1.0.0", cat:"会话管理类",
+   desc:"按清单批量修改 SecureCRT 会话文件的 Hostname（改前自动备份）",
+   params:[P("src_dir","会话目录","dir",{required:true}),
+           P("mapping","修改清单","file",{required:true,help:"xlsx/csv，含「文件名」「新 Hostname」两列",hint:"已加载 84 条映射"}),
+           P("dry_run","仅预演（不写文件）","bool",{checked:true,help:"先看会改哪些，确认后再真正执行"})],
+   tabs:["result","log","summary"],
+   columns:["文件名","旧值","新值","状态","失败原因"],
+   kpi:[["待修改","84","份","var(--brand)","i-folder","来自映射清单"],["预演通过","82","份","var(--success)","i-check","旧值均可匹配"],["需人工确认","2","份","var(--warning)","i-alert","文件不存在"],["自动备份","84","份","var(--info)","i-database","写入前创建 .bak"]]},
+
+  {id:"session_sync", name:"会话配置同步", ver:"1.0.0", cat:"会话管理类",
+   desc:"从基准 .ini 复制密码/登录脚本等配置项到批量会话文件（改前自动备份）",
+   params:[P("src_dir","会话目录","dir",{required:true}),
+           P("base_file","基准会话文件","file",{required:true}),
+           P("keys","同步配置项","text",{value:"Password,Login Script",help:"逗号分隔；凭证本身不落盘明文"}),
+           P("dry_run","仅预演（不写文件）","bool",{checked:true})],
+   tabs:["result","log","summary"],
+   columns:["文件名","修改项数","状态","失败原因"],
+   kpi:[["目标会话","612","份","var(--brand)","i-folder","含子目录"],["同步项","2","项","var(--accent)","i-sliders","Password / Login Script"],["跳过","11","份","var(--warning)","i-alert","只读 / 已一致"],["耗时","00:07","","var(--success)","i-clock","含备份"]]},
+
+  {id:"demo_scan", name:"演示：批量模拟采集", ver:"1.0.0", cat:"示例",
+   desc:"无需真实设备，用于验证框架闭环（并发/进度/失败隔离/中止/导出）",
+   params:[P("count","模拟设备数","int",{value:"30",range:"1 – 1000"}),
+           P("concurrency","并发数","int",{value:"8",range:"1 – 50"}),
+           P("fail_rate","失败率(%)","int",{value:"20",range:"0 – 100"})],
+   tabs:["result","log","summary"],
+   columns:["IP","设备名","厂商","状态","耗时(ms)","失败原因"],
+   rows:[["10.99.0.1","DEMO-01","华为","成功","102",""],
+         ["10.99.0.2","DEMO-02","华三","成功","98",""],
+         ["10.99.0.3","DEMO-03","中兴","失败","—","模拟超时"],
+         ["10.99.0.4","DEMO-04","思科","成功","110",""],
+         ["10.99.0.5","DEMO-05","锐捷","失败","—","模拟认证失败"]],
+   kpi:[["模拟设备","30","台","var(--brand)","i-server","不连真实设备"],["成功","24","台","var(--success)","i-check","成功率 80.0%"],["失败","6","台","var(--danger)","i-alert","异常隔离已验证"],["耗时","00:03","","var(--accent)","i-clock","并发 8"]]}
+];
+
+/* 图表数据（来自 CRC 趋势分析语境） */
+var BARS = [
+  ["CORE-SW-01 cgei-0/1/1/49","6,574,201",100,true],
+  ["ACC-H3C-07 GE1/0/24","842,660",76,true],
+  ["FW-FH-03 eth-0/3","128,904",58,false],
+  ["ACC-RJ-19 Gi0/0/12","41,337",46,false],
+  ["ACC-ZTE-12 gei-1/2","14,208",34,false],
+  ["EDGE-CS-04 Gi0/0/1","3,409",24,false],
+  ["FW-DP-02 eth1/1","1,882",17,false],
+  ["CORE-SW-02 XGE1/0/1","846",11,false]
+];
+var RISKS = [["CORE-SW-01 cgei-0/1/1/49","连续 7 天增长"],["ACC-H3C-07 GE1/0/24","连续 5 天增长"],["FW-FH-03 eth-0/3","连续 3 天增长"]];
+var LOGS = [
+  ["08:30:02","INFO","—","定时任务触发：每日流水线（采集 + 备份 + 对比）"],
+  ["08:30:03","INFO","—","读取设备清单 devices.xlsx：243 台，2 条提示"],
+  ["08:30:05","INFO","10.24.8.11","连接成功（netmiko / huawei）"],
+  ["08:30:06","INFO","10.24.8.12","连接成功（netmiko / huawei）"],
+  ["08:30:07","WARN","10.24.8.33","回显检测到分页符，已按 terminal length 0 重取"],
+  ["08:30:09","ERROR","10.24.8.58","连接超时（paramiko / DPtech），已隔离该设备"],
+  ["08:30:11","ERROR","10.24.8.71","认证失败，请检查凭证引用 default"],
+  ["08:31:44","INFO","—","接口采集完成：231 成功 / 12 失败"],
+  ["08:32:01","INFO","—","配置备份完成：239 份 .cfg 已归档"],
+  ["08:32:18","WARN","—","配置备份失败 4 台，不阻断 CRC 对比（退出码 6）"],
+  ["08:32:36","INFO","—","CRC 对比完成：output/crc_compare/20261112_083236/result.xlsx"],
+  ["08:32:37","INFO","—","任务结束：SUCCEEDED，结果目录已写入 summary.json"]
+];
+
+/* ============================================================
+   State & helpers
+   ============================================================ */
+var $ = function(s,r){return (r||document).querySelector(s)};
+var $$ = function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
+var esc = function(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]})};
+var icon = function(id,cls){return '<svg class="ico '+(cls||'')+'"><use href="#'+id+'"/></svg>'};
+var state = {toolId:"iface_collect", tab:"result", theme:"dark", filter:"all",
+  rowSearch:"", navSearch:"", running:false, progress:0, folded:false,
+  fontStep:0, finished:false, cancelled:false, timer:null};
+var tool = function(){for(var i=0;i<TOOLS.length;i++){if(TOOLS[i].id===state.toolId)return TOOLS[i]}return TOOLS[0]};
+
+var STATUS_CLASS = {"成功":"st-ok","部分成功":"st-partial","失败":"st-fail","连接超时":"st-fail",
+  "认证失败":"st-fail","解析失败":"st-fail","结果写入失败":"st-fail","未知错误":"st-fail",
+  "等待中":"st-idle","连接中":"st-info","执行中":"st-info","已跳过":"st-idle","合规":"st-ok","不合规":"st-fail"};
+
+/* 没有手写结果行的工具，按列名生成合理的示例数据 */
+function genRows(t){
+  var devices=["CORE-SW-01","ACC-H3C-07","ACC-ZTE-12","FW-FH-03","FW-DP-02","ACC-RJ-19"];
+  var vendors=["华为","华三","中兴","烽火","迪普","锐捷"];
+  var ips=["10.24.8.11","10.24.8.21","10.24.8.33","10.24.8.47","10.24.8.58","10.24.8.64"];
+  var statuses=["成功","成功","成功","部分成功","成功","失败"];
+  var reasons=["","","","字段缺失","","连接超时"];
+  var out=[];
+  for(var i=0;i<6;i++){
+    out.push(t.columns.map(function(c){
+      if(c==="状态")return statuses[i];
+      if(c==="失败原因")return reasons[i];
+      if(c==="IP")return ips[i];
+      if(c==="设备名"||c==="设备名称"||c==="文件名")return c==="文件名"?("session-"+devices[i]+".ini"):devices[i];
+      if(c==="厂商")return vendors[i];
+      if(c.indexOf("耗时")>=0)return ["1,284","986","2,410","1,872","—","1,043"][i];
+      if(c.indexOf("字符数")>=0||c.indexOf("文件大小")>=0)return ["42,918","38,204","28,661","35,117","—","39,880"][i];
+      if(c.indexOf("CRC")>=0||c.indexOf("值")>=0)return ["6,574,201","842,660","128,904","14,208","0","—"][i];
+      if(c==="接口"||c==="接口名称"||c==="本地接口")return ["cgei-0/1/1/49","GE1/0/24","gei-1/2","eth-0/3","eth1/1","Gi0/0/12"][i];
+      if(c==="行号")return String(i+1).padStart(3,"0");
+      if(c==="修改项数")return String(i+1);
+      if(c==="说明"||c==="详情"||c==="检查项"||c==="接口描述")return ["接口描述合规","SNMP 配置缺失","描述含保留字","VRRP 网关","管理口","聚合口"][i];
+      if(c==="原始输入"||c==="地址段"||c==="CIDR格式"||c==="网络地址")return "10.24."+(i+8)+".0/24";
+      if(c==="Username")return "netops";
+      if(c==="Hostname")return ips[i];
+      if(c==="旧值"||c==="新值")return ips[i];
+      if(c==="网关")return "10.24."+(i+8)+".1";
+      if(c.indexOf("版本")>=0)return "IPv4";
+      if(c==="备注"||c==="网关类型")return i===0?"持续增长":"";
+      return "—";
+    }));
+  }
+  return out;
+}
+function rowsOf(t){return t.rows||genRows(t)}
+function formatNum(v){return v}
+
+/* ============================================================
+   Renderers
+   ============================================================ */
+function renderNav(){
+  var groups={},order=[];
+  TOOLS.forEach(function(t){
+    if(state.navSearch){
+      var q=state.navSearch.toLowerCase();
+      if(t.name.toLowerCase().indexOf(q)<0 && t.id.toLowerCase().indexOf(q)<0)return;
+    }
+    if(!groups[t.cat]){groups[t.cat]=[];order.push(t.cat)}
+    groups[t.cat].push(t);
+  });
+  if(!order.length){$("#nav").innerHTML='<div class="nav-empty">没有匹配的工具<br>换个关键词试试</div>';return}
+  var html="";
+  order.forEach(function(cat){
+    var meta=CAT[cat]||CAT["示例"];
+    html+='<div class="nav-group" style="--cat:'+meta.color+'">'
+      +'<div class="nav-group-head"><span class="bar"></span>'+esc(cat)
+      +'<span class="nav-count">'+groups[cat].length+'</span></div>';
+    groups[cat].forEach(function(t){
+      html+='<button class="nav-item'+(t.id===state.toolId?' active':'')+'" data-tool="'+t.id+'"'
+        +' style="--cat:'+meta.color+'" aria-current="'+(t.id===state.toolId?'page':'false')+'">'
+        +icon(meta.icon,"ico-sm")+'<span class="nav-name">'+esc(t.name)+'</span></button>';
+    });
+    html+='</div>';
+  });
+  $("#nav").innerHTML=html;
+  var visible=order.reduce(function(n,c){return n+groups[c].length},0);
+  $("#toolCount").textContent=visible+" / "+TOOLS.length+" 个工具已注册";
+}
+
+function renderHead(){
+  var t=tool(),meta=CAT[t.cat];
+  $("#crumbCat").textContent=t.cat; $("#crumbName").textContent=t.name;
+  $("#toolName").textContent=t.name;
+  $("#catChip").textContent=t.cat;
+  $("#catChip").style.setProperty("--cat",meta.color);
+  $("#toolDesc").textContent=t.desc;
+  $("#paramNote").textContent=t.params.length+" 项参数 · "+t.params.filter(function(p){return p.required}).length+" 项必填";
+}
+
+function renderKpi(){
+  $("#kpiRow").innerHTML=tool().kpi.map(function(k){
+    return '<div class="kpi" style="--tone:'+k[3]+'">'
+      +'<div class="kpi-label">'+icon(k[4],"ico-sm")+esc(k[0])+'</div>'
+      +'<div class="kpi-value">'+esc(k[1])+'<span style="font-size:12px;font-weight:500;color:var(--text-muted);margin-left:4px">'+esc(k[2])+'</span></div>'
+      +'<div class="kpi-sub">'+esc(k[5])+'</div></div>';
+  }).join("");
+}
+
+function renderParams(){
+  $("#paramsGrid").innerHTML=tool().params.map(function(p){
+    var label='<div class="field-label">'+esc(p.label)+(p.required?'<span class="req">*</span>':"")
+      +(p.help?'<span class="help-dot" tabindex="0" aria-label="参数说明">?<span class="tip">'+esc(p.help)+'</span></span>':"")+'</div>';
+    var ctrl="";
+    if(p.type==="bool"){
+      ctrl='<div class="toggle-row"><button class="toggle" role="switch" aria-checked="'+!!p.checked+'"'
+        +' aria-label="'+esc(p.label)+'" onclick="var a=this.getAttribute(\'aria-checked\');this.setAttribute(\'aria-checked\',a===\'true\'?\'false\':\'true\')"></button>'
+        +'<span class="toggle-txt">'+(p.checked?"已启用":"已关闭")+'</span></div>';
+    }else if(p.type==="choice"){
+      ctrl='<select class="select" aria-label="'+esc(p.label)+'">'+p.options.map(function(o,i){
+        return '<option'+(i===0?' selected':'')+'>'+esc(o)+'</option>'}).join("")+'</select>';
+    }else if(p.type==="int"){
+      ctrl='<input class="input mono" type="number" value="'+esc(p.value||"0")+'" aria-label="'+esc(p.label)+'">'
+        +(p.range?'<div class="field-hint">范围 '+esc(p.range)+'</div>':"");
+    }else if(p.type==="dir"||p.type==="file"||p.type==="device_list"){
+      ctrl='<div class="input-group"><input class="input mono" value="'
+        +(p.type==="device_list"?'D:\\netops\\devices.xlsx':(p.type==="file"?"":'D:\\netops\\archive'))
+        +'" placeholder="选择路径…" aria-label="'+esc(p.label)+'">'
+        +'<button class="btn btn-sm" type="button">选择…</button></div>'
+        +(p.hint?'<div class="field-hint ok">'+icon("i-check","ico-sm")+esc(p.hint)+'</div>':"");
+    }else{
+      ctrl='<input class="input'+(p.type==="password"?" mono":"")+'"'
+        +(p.type==="password"?' type="password"':'')+' value="'+esc(p.value||"")+'"'
+        +(p.placeholder?' placeholder="'+esc(p.placeholder)+'"':'')+' aria-label="'+esc(p.label)+'">';
+    }
+    return '<div class="field">'+label+ctrl+'</div>';
+  }).join("");
+}
+
+var TAB_META={result:{name:"结果表",icon:"i-table"},chart:{name:"图表",icon:"i-chart"},
+  log:{name:"运行日志",icon:"i-terminal"},summary:{name:"任务摘要",icon:"i-clipboard"}};
+function renderTabs(){
+  var t=tool();
+  if(t.tabs.indexOf(state.tab)<0)state.tab=t.tabs[0];
+  $("#tabs").innerHTML=t.tabs.map(function(k){
+    var m=TAB_META[k],count="";
+    if(k==="result")count=rowsOf(t).length;
+    if(k==="chart")count=6;
+    if(k==="log")count=LOGS.length;
+    return '<button class="tab" role="tab" data-tab="'+k+'" aria-selected="'+(state.tab===k)+'">'
+      +icon(m.icon)+esc(m.name)+(count!==""?'<span class="tab-count">'+count+'</span>':"")+'</button>';
+  }).join("");
+  renderPanel();
+}
+
+function statusCell(v){
+  var cls=STATUS_CLASS[v]||(/失败|超时|错误/.test(v)?"st-fail":"st-idle");
+  return '<span class="status-chip '+cls+'">'+esc(v)+'</span>';
+}
+function tableRowsOf(t){
+  return rowsOf(t).filter(function(r){
+    if(state.filter==="ok")return r.some(function(c){return c==="成功"});
+    if(state.filter==="fail")return r.some(function(c){return /失败|超时|部分成功/.test(String(c))});
+    return true;
+  }).filter(function(r){
+    if(!state.rowSearch)return true;
+    return r.join(" ").toLowerCase().indexOf(state.rowSearch.toLowerCase())>=0;
+  });
+}
+function tableBodyOf(t,rows){
+  if(!rows.length)return '<tr class="empty-row"><td colspan="'+t.columns.length+'">没有符合条件的记录</td></tr>';
+  return rows.map(function(r){
+    var fail=r.some(function(c){return /^(失败|连接超时|认证失败|解析失败|结果写入失败|未知错误)$/.test(String(c))});
+    var cols=r.map(function(c,i){
+      var col=t.columns[i]||"",s=String(c);
+      var cls=(/耗时|字符数|文件大小|CRC|值|数|行号|地址/.test(col)?"num":"");
+      var val=esc(c);
+      if(col==="状态"||col==="检查项"&&STATUS_CLASS[s])val=statusCell(s);
+      else if(/^CRC差值$/.test(col)&&/^[+-]/.test(s))val='<span class="'+(s.charAt(0)==="+"?"pos":"neg")+'">'+esc(s)+'</span>';
+      else if(col==="IP"||col==="CIDR格式"||col==="网络地址"||col==="地址段"||col.indexOf("接口")>=0||col==="设备名"||col==="文件名")val='<span class="mono">'+esc(c)+'</span>';
+      else if(col==="失败原因"&&s)val='<span style="color:var(--danger)">'+esc(c)+'</span>';
+      return '<td class="'+cls+'">'+val+'</td>';
+    }).join("");
+    return '<tr class="'+(fail?"fail":"")+'">'+cols+'</tr>';
+  }).join("");
+}
+/* 局部刷新：筛选 / 搜索 / 字号只更新 tbody 与计数，不重建工具栏，
+   否则每次键入都会销毁输入框、导致焦点丢失（只能输入一个字符）。*/
+function updateTable(){
+  if(state.tab!=="result")return;
+  var t=tool(),rows=tableRowsOf(t);
+  var body=$("#resultBody");if(body)body.innerHTML=tableBodyOf(t,rows);
+  var cnt=$("#resultCount");
+  if(cnt)cnt.textContent="共 "+rows.length+" 行 · 点击表头可排序 · 失败行以语义色标注";
+  $$("[data-filter]").forEach(function(b){
+    b.setAttribute("aria-pressed",String(b.getAttribute("data-filter")===state.filter))});
+  var lab=$("#fontLabel");if(lab)lab.textContent=(12.5+state.fontStep)+"px";
+  var tw=$("#tableWrap");if(tw)tw.style.setProperty("--table-fs",(12.5+state.fontStep)+"px");
+}
+function renderPanel(){
+  var t=tool(),k=state.tab;
+  if(k==="result"){
+    var rows=tableRowsOf(t);
+    var head='<tr>'+t.columns.map(function(c){
+      return '<th'+(/耗时|字符数|CRC|值|数|大小/.test(c)?' class="num"':'')+'>'+esc(c)+'</th>'}).join("")+'</tr>';
+    $("#tabPanel").innerHTML=
+      '<div class="toolbar">'
+      +'<div class="segmented">'
+      +['all|全部','ok|成功','fail|失败 / 异常'].map(function(x){var p=x.split("|");
+          return '<button class="seg" data-filter="'+p[0]+'" aria-pressed="'+(state.filter===p[0])+'">'+p[1]+'</button>'}).join("")
+      +'</div>'
+      +'<div class="mini-search">'+icon("i-search")+'<input id="rowSearch" placeholder="筛选表格内容" value="'+esc(state.rowSearch)+'" aria-label="筛选表格内容"></div>'
+      +'<div class="spacer" style="flex:1"></div>'
+      +'<div class="font-ctl"><button data-font="-1" aria-label="缩小字号">A-</button><span id="fontLabel">'+(12.5+state.fontStep)+'px</span><button data-font="1" aria-label="放大字号">A+</button></div>'
+      +'<button class="btn btn-sm">导出 Excel</button>'
+      +'<button class="btn btn-sm btn-icon" aria-label="刷新">'+icon("i-refresh","ico-sm")+'</button>'
+      +'</div>'
+      +'<div class="table-wrap" id="tableWrap"><table><thead>'+head+'</thead><tbody id="resultBody">'+tableBodyOf(t,rows)+'</tbody></table></div>'
+      +'<div class="table-foot"><span id="resultCount">共 '+rows.length+' 行 · 点击表头可排序 · 失败行以语义色标注</span>'
+      +'<span>结果目录 <span class="mono">output/'+esc(t.id)+'/20261112_083012_a7f3c1</span></span></div>';
+    var tw=$("#tableWrap");if(tw)tw.style.setProperty("--table-fs",(12.5+state.fontStep)+"px");
+  }
+  else if(k==="chart"){
+    $("#tabPanel").innerHTML=
+      '<div class="toolbar"><div class="segmented">'
+      +'<button class="seg" aria-pressed="true">全局 TopN</button><button class="seg">按厂商</button><button class="seg">按设备</button><button class="seg">走势</button>'
+      +'</div><div class="spacer" style="flex:1"></div>'
+      +'<span class="muted" style="font-size:11px">分析日期 2026-11-12 · 对数坐标</span>'
+      +'<button class="btn btn-sm">'+icon("i-external","ico-sm")+'放大</button></div>'
+      +'<div class="chart-grid-wrap">'
+      +'<div class="chart-box"><h3 class="chart-title">接口 CRC 差值排行 · Top 8</h3>'
+      +'<div class="chart-sub">今日 CRC 值 − 昨日 CRC 值，正值代表链路劣化（红色为持续增长接口）</div>'
+      +BARS.map(function(b){return '<div class="bar-row"><span class="bar-label" title="'+esc(b[0])+'">'+esc(b[0])+'</span>'
+        +'<div class="bar-track"><div class="bar-fill'+(b[3]?' bad':'')+'" style="width:'+b[2]+'%"></div></div>'
+        +'<span class="bar-val">'+esc(b[1])+'</span></div>'}).join("")
+      +'<div class="axis"><span>10²</span><span>10³</span><span>10⁴</span><span>10⁵</span><span>10⁶</span><span>10⁷</span></div>'
+      +'<div class="legend"><span><i style="background:var(--chart-bar)"></i>CRC 增量</span>'
+      +'<span><i style="background:var(--chart-bad)"></i>持续恶化</span>'
+      +'<span><i style="background:var(--chart-good)"></i>已恢复</span></div></div>'
+      +'<div class="chart-box"><h3 class="chart-title">多接口走势 · 近 7 日</h3>'
+      +'<div class="chart-sub">CORE-SW-01 · 每日 CRC 差值（万）</div>'
+      +trendSVG()
+      +'<div class="legend"><span><i style="background:var(--chart-bar)"></i>cgei-0/1/1/49</span>'
+      +'<span><i style="background:var(--chart-bar-alt)"></i>XGE1/0/1</span></div>'
+      +'<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">'
+      +'<h3 class="chart-title" style="margin-bottom:2px">持续恶化接口</h3>'
+      +'<div class="chart-sub" style="margin-bottom:10px">连续 N 天差值 &gt; 0，链路劣化早期信号</div>'
+      +'<div class="risk-list">'+RISKS.map(function(r){return '<div class="risk-item">'+icon("i-alert","ico-sm")
+        +'<span class="risk-name">'+esc(r[0])+'</span><span class="risk-meta">'+esc(r[1])+'</span></div>'}).join("")+'</div>'
+      +'</div></div></div>';
+  }
+  else if(k==="log"){
+    $("#tabPanel").innerHTML=
+      '<div class="toolbar"><div class="segmented">'
+      +'<button class="seg" aria-pressed="true">全部</button><button class="seg">INFO</button><button class="seg">WARN</button><button class="seg">ERROR</button>'
+      +'</div><div class="spacer" style="flex:1"></div>'
+      +'<span class="muted" style="font-size:11px">子进程输出 · 完整日志见 run.log</span>'
+      +'<button class="btn btn-sm">'+icon("i-download","ico-sm")+'导出</button></div>'
+      +'<div class="log-box">'+LOGS.map(function(l){
+        var lv=l[1].toLowerCase();
+        return '<div class="log-line"><span class="log-ts">'+esc(l[0])+'</span>'
+          +'<span class="log-lvl lv-'+lv+'">'+esc(l[1])+'</span>'
+          +'<span class="log-ip">'+esc(l[2])+'</span>'
+          +'<span class="log-msg">'+esc(l[3])+'</span></div>';
+      }).join("")+'</div>';
+  }
+  else{
+    $("#tabPanel").innerHTML=
+      '<div class="summary-grid"><div class="summary-block"><h3>'+icon("i-clipboard")+'本次任务</h3>'
+      +[["工具",tool().name+"  v"+tool().ver],["状态","已完成 · SUCCEEDED"],["任务 ID","20261112_083012_a7f3c1"],
+        ["触发方式","定时任务（每日 08:30）"],["开始 / 结束","08:30:02 → 08:32:37"],["耗时","02:35"]].map(function(kv){
+        return '<div class="kv"><span class="k">'+esc(kv[0])+'</span><span class="v'+(kv[0]==="任务 ID"?" mono":"")+'">'+esc(kv[1])+'</span></div>'}).join("")
+      +'</div><div class="summary-block"><h3>'+icon("i-activity")+'执行统计</h3>'
+      +[["total","243"],["success","231"],["failed","12"],["concurrency","5"],["timeout","40 s"]].map(function(kv){
+        return '<div class="kv"><span class="k mono">'+esc(kv[0])+'</span><span class="v mono">'+esc(kv[1])+'</span></div>'}).join("")
+      +'<div style="margin-top:14px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:9px">失败原因分布</div>'
+      +[["连接超时",5],["认证失败",4],["分页符截断",2],["解析失败",1]].map(function(r){
+        return '<div class="reason-row"><span class="reason-name">'+esc(r[0])+'</span>'
+          +'<div class="reason-track"><div class="reason-fill" style="width:'+(r[1]*16)+'%"></div></div>'
+          +'<span class="reason-num">'+r[1]+'</span></div>'}).join("")+'</div></div></div>'
+      +'<div class="path-box">'+icon("i-folder","ico-sm")+' 结果目录：D:\\netops\\network-toolkit\\output\\'+esc(tool().id)+'\\20261112_083012_a7f3c1\\ · run.log / error.log / summary.json</div>';
+  }
+}
+
+function trendSVG(){
+  var pts1="0,104 46,92 92,84 138,66 184,52 230,34 276,16";
+  var pts2="0,110 46,106 92,100 138,98 184,92 230,88 276,84";
+  var grid="";for(var i=0;i<5;i++){grid+='<line x1="0" y1="'+(i*26)+'" x2="280" y2="'+(i*26)+'" stroke="var(--chart-grid)" stroke-width="1"/>'}
+  return '<svg class="trend-svg" viewBox="0 0 280 132" preserveAspectRatio="none" role="img" aria-label="近 7 日 CRC 差值走势，主接口持续上升">'
+    +grid+'<polyline points="'+pts2+'" fill="none" stroke="var(--chart-bar-alt)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+    +'<polyline points="'+pts1+'" fill="none" stroke="var(--chart-bar)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>'
+    +'<circle cx="276" cy="16" r="3.5" fill="var(--chart-bad)"/>'
+    +'<text x="2" y="128" fill="var(--chart-axis)" font-size="8" font-family="monospace">11-06</text>'
+    +'<text x="248" y="128" fill="var(--chart-axis)" font-size="8" font-family="monospace">11-12</text></svg>';
+}
+
+function renderState(){
+  var b=$("#stateBadge"),cls="sb-idle",txt="空闲",stat="尚未运行任务";
+  if(state.running){cls="sb-run";txt="运行中";stat="已处理 "+Math.round(state.progress*2.43)+" / 243"}
+  else if(state.cancelled){cls="sb-partial";txt="已中止";stat="任务已中止 · 已完成 "+Math.round(state.progress*2.43)+" / 243"}
+  else if(state.finished){cls="sb-ok";txt="已完成";stat="231 成功 / 12 失败 · 结果已落盘"}
+  b.className="state-badge "+cls;b.innerHTML='<span class="dot" style="background:currentColor;box-shadow:none"></span>'+txt;
+  $("#statusStat").textContent=stat;
+  $("#startBtn").disabled=state.running;
+  $("#startText").textContent=state.running?"执行中…":"开始执行";
+  $("#cancelBtn").disabled=!state.running;
+  $("#progressFill").style.width=state.progress+"%";
+  $("#progressNum").textContent=state.running?(Math.round(state.progress)+"%"):(state.finished?"100%":(state.cancelled?Math.round(state.progress)+"%":"待运行"));
+  $("#progressItem").textContent=state.running?("当前：10.24.8."+(11+Math.floor(state.progress/8))+"  CORE-SW-0"+(1+Math.floor(state.progress/20)))
+    :(state.finished?"231 成功 / 12 失败 · 02:35":(state.cancelled?"用户主动中止":"尚未启动任务"));
+}
+
+function renderAll(){renderNav();renderHead();renderKpi();renderParams();renderTabs();renderState()}
+
+/* ============================================================
+   Interactions
+   ============================================================ */
+document.addEventListener("click",function(e){
+  var nav=e.target.closest("[data-tool]");
+  if(nav){
+    if(state.running){return}
+    state.toolId=nav.getAttribute("data-tool");
+    state.filter="all";state.rowSearch="";state.finished=false;state.cancelled=false;state.progress=0;
+    renderAll();return;
+  }
+  var tab=e.target.closest("[data-tab]");
+  if(tab){state.tab=tab.getAttribute("data-tab");renderTabs();return}
+  var seg=e.target.closest("[data-filter]");
+  if(seg){state.filter=seg.getAttribute("data-filter");updateTable();return}
+  var f=e.target.closest("[data-font]");
+  if(f){state.fontStep=Math.max(-3,Math.min(6,state.fontStep+Number(f.getAttribute("data-font"))));
+    updateTable();return}
+});
+
+$("#navSearch").addEventListener("input",function(e){state.navSearch=e.target.value.trim();renderNav()});
+$("#navSearch").addEventListener("keydown",function(e){if(e.key==="Escape"){e.target.value="";state.navSearch="";renderNav()}});
+document.addEventListener("input",function(e){
+  if(e.target.id==="rowSearch"){state.rowSearch=e.target.value;updateTable()}
+});
+document.addEventListener("keydown",function(e){
+  if(e.key==="/"&&document.activeElement.tagName!=="INPUT"&&document.activeElement.tagName!=="SELECT"){
+    e.preventDefault();$("#navSearch").focus()}
+});
+
+$("#foldBtn").addEventListener("click",function(){
+  state.folded=!state.folded;
+  $("#paramsBody").classList.toggle("folded",state.folded);
+  $("#foldText").textContent=state.folded?"展开":"收起";
+  $("#foldIcon").style.transform=state.folded?"rotate(-90deg)":"rotate(0deg)";
+  this.setAttribute("aria-expanded",String(!state.folded));
+});
+
+$("#startBtn").addEventListener("click",function(){
+  if(state.running)return;
+  state.running=true;state.finished=false;state.cancelled=false;state.progress=0;
+  renderState();
+  clearInterval(state.timer);
+  state.timer=setInterval(function(){
+    state.progress=Math.min(100,state.progress+2+Math.random()*4);
+    renderState();
+    if(state.progress>=100){
+      clearInterval(state.timer);state.running=false;state.finished=true;renderState();
+    }
+  },110);
+});
+$("#cancelBtn").addEventListener("click",function(){
+  if(!state.running)return;
+  clearInterval(state.timer);state.running=false;state.cancelled=true;renderState();
+});
+
+/* Theme */
+function setTheme(v){
+  state.theme=v;document.documentElement.setAttribute("data-theme",v);
+  $("#themeIcon").innerHTML='<use href="#'+(v==="dark"?"i-sun":"i-moon")+'"/>';
+  $("#themeBtn").setAttribute("aria-pressed",String(v==="dark"));
+  try{localStorage.setItem("netops-theme",v)}catch(err){}
+}
+$("#themeBtn").addEventListener("click",function(){setTheme(state.theme==="dark"?"light":"dark")});
+var qTheme=null;
+try{qTheme=new URLSearchParams(location.search).get("theme")}catch(err){}
+var initial=(qTheme==="light"||qTheme==="dark")?qTheme:null;
+if(!initial){try{initial=localStorage.getItem("netops-theme")}catch(err){}}
+setTheme(initial==="light"?"light":"dark");
+
+renderAll();
+</script>
+</body>
+</html>
