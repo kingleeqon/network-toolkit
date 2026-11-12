@@ -18,6 +18,7 @@ import os
 import queue
 import re
 import threading
+import time
 import tkinter as tk
 import ttkbootstrap as ttk
 from pathlib import Path
@@ -36,23 +37,17 @@ from ui.chart_view import ChartView
 from ui.auto_task_dialog import open_dialog as open_auto_task
 from ui.schedule_overview import open_dialog as open_schedule_overview
 from ui.credential_dialog import open_dialog as open_credential
+from ui import theme as ui_theme
+from ui import icons
+from ui import widgets as ui_widgets
 
 POLL_INTERVAL_MS = 100
-FONT_FAMILY = "Microsoft YaHei UI"
+FONT_FAMILY = ui_theme.FONT_SANS
 
-# 界面主题清单：前段浅色，后段深色
-THEMES = [
-    ("flatly", "Flatly（浅色）"),
-    ("litera", "Litera（浅色）"),
-    ("journal", "Journal（浅色）"),
-    ("minty", "Minty（浅色）"),
-    ("cosmo", "Cosmo（浅色）"),
-    ("darkly", "Darkly（深色）"),
-    ("cyborg", "Cyborg（深色）"),
-    ("solar", "Solar（深色）"),
-    ("superhero", "Superhero（深色）"),
-]
-DEFAULT_THEME = "flatly"
+# 主题清单由 ui/theme.py 统一提供：9 套收敛为深浅两套语义主题。
+# 变量名保留，其余代码（load_ui_pref / _launch_gui）不用改。
+THEMES = ui_theme.THEMES
+DEFAULT_THEME = ui_theme.DEFAULT_THEME
 
 # 任务状态 -> (bootstyle, 中文文案)
 STATE_STYLE = {
@@ -71,7 +66,7 @@ PREF_PATH = os.path.join(os.path.expanduser("~"), ".network_toolkit_ui.json")
 BASE_FONT_SIZE = 12          # 图表/表格的基准字号（字号设置以此为 1.0 比例）；中文 12 号起看得清
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 32
-OUTPUT_MIN_H = 340           # 自动贴合时输出区（图表/结果表）保底高度
+OUTPUT_MIN_H = 150           # 自动贴合时输出区（图表/结果表）保底高度
 OUTPUT_MIN_H_USER = 200      # 用户手动拖过分隔条后，输出区只需保底这么多
 
 
@@ -97,9 +92,9 @@ def load_ui_pref():
             pass
     except Exception:
         pass
-    valid = [t[0] for t in THEMES]
-    if pref["theme"] not in valid:
-        pref["theme"] = DEFAULT_THEME
+    # 旧版本偏好里可能存着 journal / cyborg 等 9 套主题之一：按深浅归一，
+    # 不要因为白名单不认识就把用户主题悄悄打回默认值。
+    pref["theme"] = ui_theme.migrate_theme(pref["theme"])
     return pref
 
 
@@ -133,6 +128,21 @@ class MainWindow(object):
         pref = load_ui_pref()
         self.ui_font_size = pref["font_size"]
         self.font_size_var = tk.IntVar(value=self.ui_font_size)
+        # —— 视觉层状态（只服务界面着色，不参与任何业务判断）——
+        # 以实际生效的 ttk 主题为准：main.py 用偏好创建 Window，两者一致；
+        # 但外部嵌入/测试可能传别的主题，视觉层必须跟着真实主题走，
+        # 否则 tk 原生控件会套错色板（深底配浅色文字）。
+        try:
+            active_theme = ttk.Style().theme.name
+        except Exception:
+            active_theme = ""
+        self._theme_mode = ui_theme.mode_of(active_theme or pref["theme"])
+        self._nav_items = {}          # tool_id -> (row, color_bar, name_lbl, mark_lbl)
+        self._nav_selected = None
+        self._kpi_cards = {}          # key -> (value_lbl, sub_lbl, accent_bar)
+        self._run_started_at = None
+        self._icon_bindings = {}      # tk 路径 -> (widget, icon名, 尺寸, 语义色键)
+        self._tab_icons = {}          # tab key -> PhotoImage（必须持有引用）
         # 用户上次手工拖出来的参数区高度（0 = 没拖过，按内容自动贴合）
         self._user_sash = int(pref.get("sash", 0) or 0)
         self._sash_at_press = None
@@ -180,30 +190,76 @@ class MainWindow(object):
     # —— 布局 ——
     def _build_layout(self):
         operator = os.environ.get("USERNAME", "")
+        p = ui_theme.palette(self._theme_mode)
 
-        # 应用栏
-        appbar = ttk.Frame(self.root, bootstyle="secondary", padding=(10, 6))
+        # —— 应用栏 AppBar：品牌区 / 全局调度状态 / 图标按钮组 / 操作者 ——
+        appbar = tk.Frame(self.root, bg=p["panel"], height=58)
         appbar.pack(side="top", fill="x")
-        ttk.Label(appbar, text="网络运维工具箱",
-                  font=(FONT_FAMILY, 12, "bold")).pack(side="left")
-        ttk.Label(appbar, text="v%s · 操作者 %s" % (self.app_version, operator),
-                  bootstyle="secondary").pack(side="left", padx=8)
+        appbar.pack_propagate(False)
+        self.appbar = appbar
 
-        theme_names = [t[1] for t in THEMES]
-        self.theme_var = tk.StringVar(value=THEMES[0][1])
-        self._sync_theme_var()
-        theme_box = ttk.Combobox(appbar, textvariable=self.theme_var, values=theme_names,
-                                 state="readonly", width=14, bootstyle="secondary")
-        theme_box.pack(side="right")
-        theme_box.bind("<<ComboboxSelected>>", lambda e: self.on_change_theme())
-        ToolTip(theme_box, text="切换界面主题，选择会被记住")
+        logo = tk.Canvas(appbar, width=34, height=34, bg=p["panel"],
+                         highlightthickness=0)
+        logo.pack(side="left", padx=(14, 10))
+        ui_theme.draw_logo(logo, p["brand"], 34)
+        self.logo_canvas = logo
 
-        ttk.Button(appbar, text="关于", width=6, bootstyle="secondary-outline",
-                   command=self.show_about).pack(side="right", padx=(0, 10))
-        ttk.Button(appbar, text="定时任务", width=9, bootstyle="primary-outline",
-                   command=self.show_auto_task).pack(side="right", padx=(0, 10))
-        ttk.Button(appbar, text="凭证", width=6, bootstyle="secondary-outline",
-                   command=self.show_credentials).pack(side="right", padx=(0, 10))
+        brand = tk.Frame(appbar, bg=p["panel"])
+        brand.pack(side="left")
+        # 品牌容器必须登记下来参与重涂：它的宽度取两个 Label 的较大值，
+        # 「NETOPS TOOLKIT」右侧会留出一条自身底色的空档。创建时的 bg= 会被
+        # 根节点的 option_add("*Background", …) 覆盖成 #222222，深色主题下
+        # 就是品牌名右下角那块突兀的黑方块。
+        self.brand_box = brand
+        self.brand_cn = tk.Label(brand, text="网络运维工具箱", bg=p["panel"],
+                                 fg=p["text"], font=(FONT_FAMILY, 11, "bold"))
+        self.brand_cn.pack(anchor="w")
+        self.brand_en = tk.Label(brand, text="NETOPS TOOLKIT", bg=p["panel"],
+                                 fg=p["text_muted"], font=(ui_theme.FONT_MONO, 8))
+        self.brand_en.pack(anchor="w")
+
+        # 品牌区到此为止：原先这里有一段分隔线 + 「UI v0.2」概念胶囊，
+        # 属于设计稿标注，正式界面不展示，已连同样式重涂一起删除。
+
+        # 操作者头像（Canvas 画圆，避免引入图片资源）
+        avatar = tk.Canvas(appbar, width=30, height=30, bg=p["panel"],
+                           highlightthickness=0)
+        avatar.pack(side="right", padx=(10, 14))
+        self.avatar = avatar
+        self._avatar_text = (operator or "OP")[:2].upper()
+
+        # 两主题切换按钮（替代原来的 9 项下拉）
+        # 不设 width：tk.Button 的 width 是字符单位，同时带 image+text 时
+        # 会把「图标+文字」一起挤进这个宽度，文字容易被截成单字。
+        self.theme_button = tk.Button(appbar, text="", padx=7,
+                                      command=self.on_change_theme,
+                                      relief="flat", bd=0, cursor="hand2",
+                                      font=(FONT_FAMILY, 9))
+        self.theme_button.pack(side="right", padx=3)
+        self._bind_icon(self.theme_button, "contrast", 16, "brand")
+        self._sync_theme_button()
+
+        self._icon_buttons = []
+        for text, icon_name, cmd, tip in (
+            ("关于", "info", self.show_about, "版本 / 依赖 / DPI"),
+            ("定时", "clock", self.show_auto_task, "定时任务总览"),
+            ("凭证", "key", self.show_credentials, "凭证管理"),
+        ):
+            b = tk.Button(appbar, text=text, command=cmd,
+                          relief="flat", bd=0, cursor="hand2",
+                          font=(FONT_FAMILY, 9), padx=6)
+            b.pack(side="right", padx=2)
+            self._bind_icon(b, icon_name, 16)
+            try:
+                ToolTip(b, text=tip, delay=400)
+            except Exception:
+                pass
+            self._icon_buttons.append(b)
+
+        self.global_status = tk.Label(appbar, text="", bg=p["panel"],
+                                      fg=p["text_secondary"],
+                                      font=(FONT_FAMILY, 9))
+        self.global_status.pack(side="right", padx=(0, 12))
 
         # 状态栏必须先于 body 声明，否则 body 的 expand=True 会吃掉全部剩余空间，
         # 把它挤到可视区外
@@ -212,64 +268,275 @@ class MainWindow(object):
         # 主体
         body = ttk.Frame(self.root)
         body.pack(side="top", fill="both", expand=True)
-        body.columnconfigure(0, minsize=260)
+        body.columnconfigure(0, minsize=268)
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
 
-        left = ttk.Frame(body)
-        left.grid(row=0, column=0, sticky="ns", padx=(4, 0))
+        left = tk.Frame(body, bg=p["panel"], width=268)
+        left.grid(row=0, column=0, sticky="ns")
+        # 侧栏自身用 grid 放进 body，但它的子控件全部用 pack —— 必须关掉
+        # pack_propagate 才能把宽度锁在 268。只关 grid_propagate 的话，
+        # 导航项的请求宽度会把侧栏撑到 580+，右侧工作区被挤掉一半。
+        left.pack_propagate(False)
+        self.sidebar = left
         self._build_sidebar(left)
 
         right = ttk.Frame(body)
         right.grid(row=0, column=1, sticky="nsew", padx=(6, 4))
         right.columnconfigure(0, weight=1)
-        # 剩余高度全部给「参数/输出」分栏（第 2 行），标题与描述只占自然高度
-        right.rowconfigure(2, weight=1)
+        # 剩余高度全部给「参数/输出」分栏（第 3 行），标题 / 描述 / KPI 只占自然高度
+        right.rowconfigure(3, weight=1)
         self._build_workspace(right)
+        # tk 原生控件不跟 ttk 主题走，统一在这里刷一次色
+        self._refresh_theme_colors()
 
     def _build_sidebar(self, left):
-        ttk.Label(left, text="工具", bootstyle="secondary").pack(anchor="w", padx=8, pady=(8, 2))
+        """导航区：搜索 + 分类分组自定义列表 + 页脚状态。
+
+        ttk.Treeview 只能靠缩进区分 12 个工具，无法给分类上色/加图标/显示
+        版本，也没有选中色条。改成 Canvas + tk.Frame 列表后，仍保留
+        self.search_var / empty_label / fail_badge 三个既有属性，_load_tools
+        与搜索回调一行都不用改。
+        """
+        p = ui_theme.palette(self._theme_mode)
+
+        head = tk.Frame(left, bg=p["panel"])
+        head.pack(side="top", fill="x", padx=12, pady=(12, 8))
+        # 记录容器本身：`option_add("*Background", …)` 会让创建时的 bg= 失效，
+        # 不显式重涂的话搜索框那一行的空白处会留成 #222222 深灰块
+        self.sidebar_head = head
+        self.search_caption = tk.Label(head, text="搜索工具", bg=p["panel"],
+                                       fg=p["text_muted"],
+                                       font=(FONT_FAMILY, 9))
+        self.search_caption.pack(anchor="w", pady=(0, 4))
+        self._bind_icon(self.search_caption, "search", 15)
         self.search_var = tk.StringVar()
-        search = ttk.Entry(left, textvariable=self.search_var, bootstyle="secondary")
-        search.pack(fill="x", padx=8, pady=2)
-        search.insert(0, "")
-        ToolTip(search, text="按工具名或 id 过滤")
+        search = ttk.Entry(head, textvariable=self.search_var, bootstyle="secondary")
+        search.pack(fill="x", ipady=3)
+        self.search_entry = search
+        try:
+            ToolTip(search, text="按工具名或 id 过滤")
+        except Exception:
+            pass
         search.bind("<KeyRelease>", lambda e: self._render_tool_list())
 
-        frame = ttk.Frame(left)
-        frame.pack(fill="both", expand=True, padx=8, pady=4)
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(0, weight=1)
-        self.tool_tree = ttk.Treeview(frame, show="tree", bootstyle="secondary")
-        self.tool_tree.column("#0", width=250, stretch=True, minwidth=140)
-        vs = ttk.Scrollbar(frame, orient="vertical", command=self.tool_tree.yview,
-                           bootstyle="secondary-round")
-        hs = ttk.Scrollbar(frame, orient="horizontal", command=self.tool_tree.xview,
-                           bootstyle="secondary-round")
-        self.tool_tree.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
-        self.tool_tree.grid(row=0, column=0, sticky="nsew")
-        vs.grid(row=0, column=1, sticky="ns")
-        hs.grid(row=1, column=0, sticky="ew")
-        self.tool_tree.bind("<<TreeviewSelect>>", self.on_select_tool)
+        wrap = tk.Frame(left, bg=p["panel"])
+        wrap.pack(side="top", fill="both", expand=True)
+        self.nav_canvas = tk.Canvas(wrap, bg=p["panel"], highlightthickness=0,
+                                    borderwidth=0)
+        self.nav_canvas.pack(side="left", fill="both", expand=True)
+        self.nav_sbar = ttk.Scrollbar(wrap, orient="vertical",
+                                      command=self.nav_canvas.yview,
+                                      bootstyle="secondary-round")
+        self.nav_canvas.configure(yscrollcommand=self._on_nav_scroll)
+        self.nav_inner = tk.Frame(self.nav_canvas, bg=p["panel"])
+        self._nav_win = self.nav_canvas.create_window((0, 0), window=self.nav_inner,
+                                                      anchor="nw")
+        self.nav_inner.bind("<Configure>", self._on_nav_inner_configure)
+        self.nav_canvas.bind("<Configure>", self._on_nav_canvas_configure)
+        self.nav_canvas.bind("<Enter>", self._bind_nav_wheel)
+        self.nav_canvas.bind("<Leave>", self._unbind_nav_wheel)
 
-        self.empty_label = ttk.Label(left, text="", bootstyle="secondary", wraplength=180)
-        self.fail_badge = ttk.Label(left, text="", bootstyle="warning", wraplength=180)
+        foot = tk.Frame(left, bg=p["panel"])
+        foot.pack(side="bottom", fill="x", padx=12, pady=(6, 10))
+        self.sidebar_foot = foot
+        self.nav_count = tk.Label(foot, text="", bg=p["panel"], fg=p["success"],
+                                  font=(FONT_FAMILY, 9), wraplength=238,
+                                  justify="left")
+        self.nav_count.pack(anchor="w")
+        self.nav_foot_hint = tk.Label(foot, text="插件式注册 · tools/ 丢文件即生效",
+                                      bg=p["panel"], fg=p["text_muted"],
+                                      font=(FONT_FAMILY, 9), wraplength=238,
+                                      justify="left")
+        self.nav_foot_hint.pack(anchor="w", pady=(2, 0))
+        self.nav_foot_key = tk.Label(foot, text="F11 全屏 · Ctrl+滚轮 字号",
+                                     bg=p["panel"], fg=p["text_muted"],
+                                     font=(ui_theme.FONT_MONO, 8), wraplength=238,
+                                     justify="left")
+        self.nav_foot_key.pack(anchor="w", pady=(2, 0))
+        self.empty_label = tk.Label(foot, text="", bg=p["panel"], fg=p["danger"],
+                                    font=(FONT_FAMILY, 9), wraplength=230,
+                                    justify="left")
+        self.fail_badge = tk.Label(foot, text="", bg=p["panel"], fg=p["warning"],
+                                   font=(FONT_FAMILY, 9), wraplength=230,
+                                   justify="left")
+
+    # —— 导航列表滚动（与参数区滚动同一套写法，互不干扰）——
+    def _on_nav_inner_configure(self, _event=None):
+        try:
+            self.nav_canvas.configure(scrollregion=self.nav_canvas.bbox("all"))
+        except Exception:
+            pass
+
+    def _on_nav_canvas_configure(self, event):
+        try:
+            self.nav_canvas.itemconfigure(self._nav_win, width=event.width)
+        except Exception:
+            pass
+
+    def _on_nav_scroll(self, first, last):
+        try:
+            self.nav_sbar.set(first, last)
+            if float(first) <= 0.0 and float(last) >= 1.0:
+                self.nav_sbar.pack_forget()
+            elif not self.nav_sbar.winfo_ismapped():
+                self.nav_sbar.pack(side="right", fill="y")
+        except Exception:
+            pass
+
+    def _bind_nav_wheel(self, _e=None):
+        self.nav_canvas.bind_all("<MouseWheel>", self._on_nav_wheel)
+
+    def _unbind_nav_wheel(self, _e=None):
+        self.nav_canvas.unbind_all("<MouseWheel>")
+
+    def _on_nav_wheel(self, event):
+        try:
+            self.nav_canvas.yview_scroll(int(-event.delta / 120), "units")
+        except Exception:
+            pass
+
+    def _highlight_nav(self):
+        """刷新选中态：品牌色左色条 + soft 底 + 名称加粗。"""
+        p = ui_theme.palette(self._theme_mode)
+        for tid, (row, bar, name, mark) in self._nav_items.items():
+            active = (tid == self._nav_selected)
+            bg = p["brand_soft"] if active else p["panel"]
+            for w in (row, mark, name):
+                try:
+                    w.configure(bg=bg)
+                except Exception:
+                    pass
+            try:
+                bar.configure(bg=p["brand"] if active else bg)
+                name.configure(fg=p["text"] if active else p["text_secondary"],
+                               font=(FONT_FAMILY, 10, "bold" if active else "normal"))
+            except Exception:
+                pass
+
+    # —— KPI 指标条（纯展示，只订阅已有消息，不改任务引擎）——
+    def _build_kpi_strip(self, right):
+        p = ui_theme.palette(self._theme_mode)
+        strip = tk.Frame(right, bg=p["app"])
+        strip.grid(row=2, column=0, sticky="ew", padx=4, pady=(0, 8))
+        for c in range(4):
+            strip.columnconfigure(c, weight=1, uniform="kpi")
+        specs = [
+            ("total", "设备总数", "brand", "server"),
+            ("success", "成功", "success", "check"),
+            ("fail", "失败 / 部分", "danger", "alert"),
+            ("elapsed", "耗时", "accent", "clock"),
+        ]
+        self._kpi_cards = {}
+        for i, (key, label, tone, icon_name) in enumerate(specs):
+            # 卡片 = surface 底 + 8px 圆角；Tk 没有圆角容器，用四角扇形补
+            card = tk.Frame(strip, bg=p["surface"], bd=0, highlightthickness=0)
+            card.grid(row=0, column=i, sticky="ew",
+                      padx=(0 if i == 0 else 8, 0))
+            corners = ui_widgets.round_corners(card, 8, p["surface"], p["app"])
+            box = tk.Frame(card, bg=p["surface"])
+            box.pack(fill="both", expand=True, padx=14, pady=9)
+            top = tk.Frame(box, bg=p["surface"])
+            top.pack(anchor="w", fill="x")
+            ic = tk.Label(top, bg=p["surface"])
+            ic.pack(side="left")
+            lbl = tk.Label(top, text=label, bg=p["surface"], fg=p["text_muted"],
+                           font=(FONT_FAMILY, 9))
+            lbl.pack(side="left", padx=(6, 0))
+            val = tk.Label(box, text="—", bg=p["surface"], fg=p[tone],
+                           font=(ui_theme.FONT_MONO, 17, "bold"), anchor="w")
+            val.pack(anchor="w", pady=(2, 0))
+            sub = tk.Label(box, text="尚未运行", bg=p["surface"],
+                           fg=p["text_muted"], font=(FONT_FAMILY, 8), anchor="w")
+            sub.pack(anchor="w")
+            self._bind_icon(ic, icon_name, 14, color=p[tone], track=False)
+            ui_widgets.lift_corners(corners)
+            # top 必须由主题刷新显式重刷：根节点上的 option_add("*Background", …)
+            # 会让「创建时传入的 bg=」被忽略（只有事后 configure 才生效），
+            # 不重刷的话这一行会留成 Tk 默认的 #222222 深灰条。
+            self._kpi_cards[key] = (val, sub, ic, card, box, lbl, tone,
+                                    corners, icon_name, top)
+        self.kpi_strip = strip
+
+    def set_kpi(self, key, value, sub=None):
+        rec = self._kpi_cards.get(key)
+        if not rec:
+            return
+        try:
+            rec[0].configure(text=str(value))
+            if sub is not None:
+                rec[1].configure(text=str(sub))
+        except Exception:
+            pass
+
+    def _reset_kpi(self):
+        self._run_started_at = None
+        for key in ("total", "success", "fail", "elapsed"):
+            self.set_kpi(key, "—", "尚未运行")
+
+    def _update_kpi_from_engine(self, done=False):
+        """从 engine.stats 读数（只用于显示，不参与状态判断）。"""
+        try:
+            stats = dict(self.engine.stats or {})
+        except Exception:
+            stats = {}
+        total = stats.get("total", 0)
+        success = stats.get("success", 0)
+        partial = stats.get("partial", 0)
+        fail = stats.get("fail", 0) + partial
+        self.set_kpi("total", total, "本次已处理" if done else "处理中…")
+        self.set_kpi("success", success,
+                     ("成功率 %.1f%%" % (success * 100.0 / total)) if total else "—")
+        self.set_kpi("fail", fail,
+                     ("含 %d 台部分成功" % partial) if partial
+                     else ("全部成功" if done else "—"))
+        if self._run_started_at:
+            secs = int(time.time() - self._run_started_at)
+            self.set_kpi("elapsed", "%02d:%02d" % (secs // 60, secs % 60),
+                         "已完成" if done else "运行中")
+
+    def _update_head_chips(self, tool):
+        p = ui_theme.palette(self._theme_mode)
+        color = ui_theme.category_color(tool.category, self._theme_mode)
+        try:
+            self.crumb.configure(text="工具箱  ›  %s  ›  %s"
+                                      % (tool.category, tool.name))
+            self.cat_chip.configure(text=tool.category, bg=p["elevated"], fg=color)
+        except Exception:
+            pass
 
     def _build_workspace(self, right):
-        self.tool_title = ttk.Label(right, text="未选择工具",
-                                    font=(FONT_FAMILY, 11, "bold"))
-        self.tool_title.grid(row=0, column=0, sticky="w", padx=4, pady=(6, 0))
-        self.tool_desc = ttk.Label(right, text="", bootstyle="secondary",
+        p = ui_theme.palette(self._theme_mode)
+        # —— 工具头：面包屑 + 名称 + 分类徽章（版本 / id 不展示，见设计评审）——
+        head = ttk.Frame(right)
+        head.grid(row=0, column=0, sticky="ew", padx=4, pady=(8, 2))
+        # darkly 主题下 secondary.TLabel 前景是 #444444，压在深底上几乎看不见；
+        # 改用自定义 Desc.TLabel，只覆盖前景色，背景仍随主题透明。
+        self.crumb = ttk.Label(head, text="工具箱", style="Desc.TLabel")
+        self.crumb.grid(row=0, column=0, sticky="w")
+        line = ttk.Frame(head)
+        line.grid(row=1, column=0, sticky="w", pady=(2, 0))
+        self.tool_title = ttk.Label(line, text="未选择工具",
+                                    font=(FONT_FAMILY, 15, "bold"))
+        self.tool_title.pack(side="left")
+        self.cat_chip = tk.Label(line, text="", font=(FONT_FAMILY, 9),
+                                 padx=7, pady=1)
+        self.cat_chip.pack(side="left", padx=(10, 4))
+
+        self.tool_desc = ttk.Label(right, text="", style="Desc.TLabel",
                                    wraplength=780)
-        self.tool_desc.grid(row=1, column=0, sticky="w", padx=4)
+        self.tool_desc.grid(row=1, column=0, sticky="w", padx=4, pady=(0, 6))
         # 换行宽度跟着窗口走：写死 780 在窄窗口会折成第二行只剩一个"）"
         right.bind("<Configure>", self._on_right_configure)
+
+        # KPI 指标条占第 2 行；参数/输出分栏下移到第 3 行
+        self._build_kpi_strip(right)
 
         # 参数区 / 输出区 放进可上下拖拽的分栏：
         # 参数多的工具（如 CRC趋势分析 11 项，每行约 43px）按自然高度会挤掉输出区，
         # 用分栏后默认把剩余空间全给输出区，用户还能自己拖动分配。
         self.vsplit = ttk.Panedwindow(right, orient="vertical", bootstyle="secondary")
-        self.vsplit.grid(row=2, column=0, sticky="nsew", padx=4, pady=(6, 2))
+        self.vsplit.grid(row=3, column=0, sticky="nsew", padx=4, pady=(6, 2))
         # 窗口尺寸/工具变化时自动贴合参数区；用户拖过分隔条后不再自动调
         self.vsplit.bind("<Configure>", self._on_split_configure)
         self.vsplit.bind("<ButtonPress-1>", self._on_split_press)
@@ -294,15 +561,35 @@ class MainWindow(object):
         self.form_canvas.configure(yscrollcommand=self._on_form_scroll,
                                    xscrollcommand=self._on_form_xscroll)
 
-        self.form_frame = ttk.Labelframe(self.form_canvas, text="参数", padding=6,
-                                         bootstyle="secondary")
-        self.form_frame.columnconfigure(1, weight=1)
+        # 参数卡片：卡片头（图标 + 标题 + 项数徽章 + 分隔线）+ 表单体。
+        # 用 tk.Frame 而不是 ttk.Labelframe —— 后者只会画浮雕方角边框、
+        # 标题还压在边框线上，和设计稿的卡片头差得最远。
+        self.form_card = tk.Frame(self.form_canvas, bg=p["app"], bd=0,
+                                  highlightthickness=1,
+                                  highlightbackground=p["border"])
+        self.form_head = tk.Frame(self.form_card, bg=p["app"])
+        self.form_head.pack(fill="x", padx=(12, 10), pady=(8, 6))
+        self.form_head_icon = tk.Label(self.form_head, bg=p["app"])
+        self.form_head_icon.pack(side="left")
+        self._bind_icon(self.form_head_icon, "sliders", 15, "brand")
+        self.form_head_title = tk.Label(self.form_head, text="运行参数", bg=p["app"],
+                                        fg=p["text"], font=(FONT_FAMILY, 10, "bold"))
+        self.form_head_title.pack(side="left", padx=(7, 0))
+        self.form_head_chip = tk.Label(self.form_head, text="", bg=p["elevated"],
+                                       fg=p["text_muted"], font=(FONT_FAMILY, 8),
+                                       padx=7, pady=1)
+        self.form_head_chip.pack(side="left", padx=(8, 0))
+        self.form_head_rule = tk.Frame(self.form_card, bg=p["border"], height=1)
+        self.form_head_rule.pack(fill="x")
+
+        self.form_frame = ttk.Frame(self.form_card, padding=(12, 8, 12, 8))
+        self.form_frame.pack(fill="both", expand=True)
         self.form_hint = ttk.Label(self.form_frame, text="请先在左侧选择工具",
                                    bootstyle="secondary")
-        self.form_hint.grid(row=0, column=0, sticky="w", padx=8, pady=8)
-        self._form_win = self.form_canvas.create_window((0, 0), window=self.form_frame,
+        self.form_hint.grid(row=0, column=0, sticky="w", pady=6)
+        self._form_win = self.form_canvas.create_window((0, 0), window=self.form_card,
                                                         anchor="nw")
-        self.form_frame.bind("<Configure>", self._on_form_inner_configure)
+        self.form_card.bind("<Configure>", self._on_form_inner_configure)
         self.form_canvas.bind("<Configure>", self._on_form_canvas_configure)
         self.form_canvas.bind("<Enter>", self._bind_form_wheel)
         self.form_canvas.bind("<Leave>", self._unbind_form_wheel)
@@ -316,49 +603,67 @@ class MainWindow(object):
         # 控制条 + 进度
         prog = ttk.Frame(lower)
         prog.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 2))
-        self.btn_start = ttk.Button(prog, text="开始", width=8, bootstyle="success",
-                                    command=self.on_start)
+        self.btn_start = ttk.Button(prog, text="开始执行", width=10,
+                                    bootstyle="primary", command=self.on_start)
         self.btn_start.pack(side="left")
-        self.btn_cancel = ttk.Button(prog, text="中止", width=8, bootstyle="danger-outline",
+        self._bind_icon(self.btn_start, "play", 16, "on_primary")
+
+        self.btn_cancel = ttk.Button(prog, text="中止", width=7,
+                                     bootstyle="danger-outline",
                                      command=self.on_cancel, state="disabled")
         self.btn_cancel.pack(side="left", padx=6)
-        ttk.Button(prog, text="打开结果目录", bootstyle="secondary-outline",
-                   command=self.open_output_dir).pack(side="left", padx=6)
+        self._bind_icon(self.btn_cancel, "square", 16, "danger")
+
+        self.btn_open_dir = ttk.Button(prog, text="打开结果目录",
+                                       bootstyle="secondary-outline",
+                                       command=self.open_output_dir)
+        self.btn_open_dir.pack(side="left", padx=6)
+        self._bind_icon(self.btn_open_dir, "folder", 16)
+
         # 一键收起参数区，把整块高度让给结果/图表
         self.btn_fold = ttk.Button(prog, text="收起参数", width=9,
                                    bootstyle="secondary-outline",
                                    command=self.toggle_form_pane)
         self.btn_fold.pack(side="left", padx=(0, 6))
+        self._bind_icon(self.btn_fold, "chevron_up", 16)
 
-        self.progress = ttk.Floodgauge(prog, orient="horizontal", mask="{}%",
-                                       maximum=100, bootstyle="success", length=220)
-        self.progress.pack(side="right", fill="x", expand=True, padx=(12, 0))
-        self.progress_label = ttk.Label(prog, text="尚未运行", width=16,
+        # 右侧（从右往左）：百分比 / 细进度条 / 进度计数 / 当前设备
+        # 进度条用自绘 Meter 而不是 Floodgauge：Floodgauge 只能用主题自带的
+        # primary 蓝（#375a7f），缩到 33px 高之后就是一块和品牌青撞色的蓝方块。
+        self.progress_value = ttk.Label(prog, text="0%", width=5,
+                                        style="Mono.TLabel", anchor="e")
+        self.progress_value.pack(side="right", padx=(8, 2))
+        self.progress = ui_widgets.Meter(prog, width=150, height=22, p=p)
+        self.progress.pack(side="right", padx=(10, 0))
+        self.progress_label = ttk.Label(prog, text="尚未运行", width=9,
                                         bootstyle="secondary", anchor="e")
-        self.progress_label.pack(side="right")
+        self.progress_label.pack(side="right", padx=(0, 6))
         # 采集类任务动辄几百台，进度条上的"24/543"看不出采到哪台了，
         # 这里单独显示当前正在处理的设备（IP + 设备名）
-        self.current_label = ttk.Label(prog, text="", width=42,
+        self.current_label = ttk.Label(prog, text="", width=26,
                                        bootstyle="secondary", anchor="e")
         self.current_label.pack(side="right", padx=(0, 10))
 
-        # 结果输出区（标签页按工具的 output_tabs 声明动态重建）
-        self.tabs = ttk.Notebook(lower, bootstyle="secondary")
+        # 结果输出区（页签按工具的 output_tabs 声明动态重建）
+        self.tabs = ui_widgets.TabView(lower, p, font_family=FONT_FAMILY)
         self.tabs.grid(row=1, column=0, sticky="nsew", padx=4, pady=(0, 4))
 
-        # 输出组件统一在此创建一次，按需挂到 Notebook；tab key -> (widget, text)
-        self.result_view = ResultView(self.tabs)
-        self.chart_view = ChartView(self.tabs)
-        self.log_view = LogView(self.tabs, height=9)
-        self.summary_text = ttk.ScrolledText(self.tabs, wrap="word", height=10)
+        # 输出组件统一在此创建一次，按需挂到标签页；tab key -> (widget, text)
+        body = self.tabs.body
+        self.result_view = ResultView(body)
+        self.chart_view = ChartView(body)
+        self.log_view = LogView(body, height=9)
+        self.summary_text = ttk.ScrolledText(body, wrap="word", height=10)
         self.summary_text.insert("end", "尚未运行任务。\n")
         self.summary_text.configure(state="disabled")
+        # 文本类控件不走 ttk 样式，主题刷新时单独着色
+        self._text_widgets = (self.log_view.text, self.summary_text)
 
         self._tab_defs = {
-            "result":  (self.result_view.frame, " 结果表 "),
-            "chart":   (self.chart_view.frame, " 图表 "),
-            "log":     (self.log_view.frame, " 运行日志 "),
-            "summary": (self.summary_text, " 任务摘要 "),
+            "result":  (self.result_view.frame, "结果表"),
+            "chart":   (self.chart_view.frame, "图表"),
+            "log":     (self.log_view.frame, "运行日志"),
+            "summary": (self.summary_text, "任务摘要"),
         }
         # 图表放大时把参数区让出来（否则放大后的图被裁掉一半，看着像"没放大"）
         self.chart_view.on_expand = self._on_chart_expand
@@ -367,14 +672,14 @@ class MainWindow(object):
         # Ctrl+滚轮直接缩放结果表 / 运行日志
         self.result_view.tree.bind("<Control-MouseWheel>", self._on_font_wheel)
         self.log_view.text.bind("<Control-MouseWheel>", self._on_font_wheel)
-        # key -> 当前 Notebook 内的 tab widget 名（用于 select）
+        # key -> 当前标签页的页签 id（用于 select）
         self._tab_ids = {}
         self._current_tab_keys = []
 
     def _rebuild_output_tabs(self, keys):
         """按工具的 output_tabs 声明重建标签页（移除旧的再按序加入）。
 
-        标签页组合未变化时直接跳过，避免无谓的 Notebook 重排。
+        标签页组合未变化时直接跳过，避免无谓重排。
         """
         keys = tuple(k for k in keys if k in self._tab_defs)
         if keys == tuple(self._current_tab_keys):
@@ -384,10 +689,16 @@ class MainWindow(object):
         for tab_id in self.tabs.tabs():
             self.tabs.forget(tab_id)
         self._tab_ids = {}
+        p = ui_theme.palette(self._theme_mode)
         for key in keys:
             widget, text = self._tab_defs[key]
-            self.tabs.add(widget, text=text)
-            self._tab_ids[key] = self.tabs.tabs()[-1]
+            photo = None
+            try:
+                photo = icons.get(ui_theme.tab_icon(key), p["text_secondary"], 16)
+                self._tab_icons[key] = photo
+            except Exception:
+                photo = None
+            self._tab_ids[key] = self.tabs.add(widget, text=text, image=photo)
 
     def _select_tab(self, key):
         """按 key 选中标签页（不存在则忽略）。"""
@@ -421,7 +732,8 @@ class MainWindow(object):
     def _build_statusbar(self):
         bar = ttk.Frame(self.root, padding=(8, 4))
         bar.pack(side="bottom", fill="x")
-        self.badge = ttk.Label(bar, text="空闲", bootstyle="secondary-inverse", padding=(8, 1))
+        self.badge = ttk.Label(bar, text="● 空闲", bootstyle="secondary-inverse",
+                               padding=(8, 1))
         self.badge.pack(side="left")
         self.stat_label = ttk.Label(bar, text="", bootstyle="secondary")
         self.stat_label.pack(side="left", padx=10)
@@ -487,6 +799,12 @@ class MainWindow(object):
             text = ""
         try:
             self.sched_label.configure(text=("定时运行中：%s" % text) if text else "")
+        except Exception:
+            pass
+        try:
+            self.global_status.configure(
+                text=("● 定时运行中 · %s" % text) if text
+                else "● 调度器就绪 · 每日流水线")
         except Exception:
             pass
         self._refresh_sched_bar()
@@ -695,7 +1013,8 @@ class MainWindow(object):
         bar = ttk.Frame(self.form_frame)
         # 必须用 grid：form_frame 里的参数控件都由 FormBuilder 用 grid 管理，
         # 混用 pack 会抛 "cannot use geometry manager pack inside ..."。
-        bar.grid(row=self.form.footer_row(), column=0, columnspan=4,
+        bar.grid(row=self.form.footer_row(), column=0,
+                 columnspan=self.form.footer_span(),
                  sticky="ew", pady=(10, 0))
         ttk.Label(bar, text="定时执行", bootstyle="secondary").pack(side="left")
         self.var_sched_at = tk.StringVar(value=item.get("at", "08:30"))
@@ -837,33 +1156,330 @@ class MainWindow(object):
             pass
 
     # —— 主题 ——
-    def _sync_theme_var(self):
-        current = ttk.Style().theme.name
-        for key, label in THEMES:
-            if key == current:
-                self.theme_var.set(label)
-                return
-        self.theme_var.set(THEMES[0][1])
+    def _sync_theme_button(self):
+        """按钮文字 = 点下去会切到的那一套。"""
+        p = ui_theme.palette(self._theme_mode)
+        try:
+            dark = self._theme_mode == "dark"
+            self.theme_button.configure(
+                text="浅色" if dark else "深色",
+                bg=p["brand_soft"], fg=p["brand"],
+                activebackground=p["hover"], activeforeground=p["brand"])
+        except Exception:
+            pass
 
     def on_change_theme(self):
-        label = self.theme_var.get()
-        theme = DEFAULT_THEME
-        for key, lab in THEMES:
-            if lab == label:
-                theme = key
-                break
+        """9 套下拉收敛为一键深浅切换；其余重置链路保持原样。"""
+        mode = "light" if self._theme_mode == "dark" else "dark"
+        name = ui_theme.theme_of(mode)
         try:
-            ttk.Style().theme_use(theme)
+            ttk.Style().theme_use(name)
         except Exception as exc:
             self.log_view.append("ERROR", "切换主题失败：%s" % exc)
             return
-        save_ui_pref({"theme": theme})
+        self._theme_mode = mode
+        save_ui_pref({"theme": name})
+        # tk 原生控件不跟 ttk 主题走，统一重新着色
+        self._refresh_theme_colors()
         # 主题变了，重建所有依赖语义色的标签
         self.result_view.refresh_tag_colors()
         self.log_view.refresh_level_colors()
         # 主题切换会重置 ttk.Style，需重新套用字号
         self._apply_font_size()
         self.set_state(self.engine.state)
+
+    # —— 运行时图标 ——
+    def _bind_icon(self, widget, name, size=16, color_key="text_secondary",
+                   track=True, compound=True, color=None):
+        """给控件挂一个线性图标。
+
+        PhotoImage 必须被控件自己持有引用（widget._ntk_icon），否则会被 GC
+        导致图标悄悄消失；track=True 登记进主题刷新表，切主题时按新色板重画。
+        color 用于「分类色」这类固定语义色（通常配合 track=False，由重建时重算）。
+        """
+        p = ui_theme.palette(self._theme_mode)
+        tint = color if color is not None else p.get(color_key, p["text_secondary"])
+        try:
+            photo = icons.get(name, tint, size)
+            if compound:
+                widget.configure(image=photo, compound="left")
+            else:
+                widget.configure(image=photo)
+            widget._ntk_icon = photo
+        except Exception:
+            pass
+        if track and color is None:
+            self._icon_bindings[str(widget)] = (
+                widget, name, size, color_key, compound)
+
+    def _refresh_icons(self):
+        """主题切换后按新色板重画所有已登记图标（顺手清掉已销毁控件）。"""
+        p = ui_theme.palette(self._theme_mode)
+        stale = []
+        for key, item in list(self._icon_bindings.items()):
+            widget, name, size, color_key, compound = item
+            try:
+                if not widget.winfo_exists():
+                    stale.append(key)
+                    continue
+                photo = icons.get(name, p.get(color_key, p["text_secondary"]), size)
+                if compound:
+                    widget.configure(image=photo, compound="left")
+                else:
+                    widget.configure(image=photo)
+                widget._ntk_icon = photo
+            except Exception:
+                stale.append(key)
+        for key in stale:
+            self._icon_bindings.pop(key, None)
+
+    def _refresh_tab_icons(self):
+        """页签图标挂在页签项上而非控件上，单独刷新。"""
+        p = ui_theme.palette(self._theme_mode)
+        for key, tab_id in list(getattr(self, "_tab_ids", {}).items()):
+            try:
+                photo = icons.get(ui_theme.tab_icon(key), p["text_secondary"], 16)
+                self.tabs.tab(tab_id, image=photo)
+                self._tab_icons[key] = photo
+            except Exception:
+                pass
+
+    def _configure_ttk_styles(self, p):
+        """把 ttkbootstrap 默认的 #222222 / #2f2f2f 灰黑底统一到语义 token。
+
+        新增的 tk 原生控件（顶栏 / 侧栏 / KPI）用的是深蓝色板，而原有 ttk
+        控件还留在 darkly 主题的中性灰黑上，同一个窗口里两套色系——这就是
+        截图里「有些地方是黑的」。这里把 ttk 容器统一到 app 色，输入框 /
+        表格 / 页签用 elevated / inset / surface 拉开层次，全部落在蓝调内。
+
+        theme_use() 会重置所有自定义样式，所以每次主题刷新都要重新配一遍。
+        """
+        try:
+            st = ttk.Style()
+            app, surf = p["app"], p["surface"]
+            elev, inset, border = p["elevated"], p["inset"], p["border"]
+            fg, fg2, brand = p["text"], p["text_secondary"], p["brand"]
+
+            for name in ("TFrame", "secondary.TFrame", "TPanedwindow",
+                         "secondary.Vertical.TPanedwindow",
+                         "secondary.Horizontal.TPanedwindow"):
+                st.configure(name, background=app)
+            for name in ("TLabelframe", "secondary.TLabelframe"):
+                st.configure(name, background=app, bordercolor=border,
+                             lightcolor=app, darkcolor=app)
+            st.configure("TLabelframe.Label", background=app, foreground=fg2)
+            # 所有 ttk Label 与容器同底色，否则会出现一块块灰斑
+            st.configure("TLabel", background=app, foreground=fg)
+            st.configure("secondary.TLabel", background=app, foreground=fg2)
+            st.configure("Desc.TLabel", background=app, foreground=fg2)
+            # 进度百分比等需要等宽对齐的小标签
+            st.configure("Mono.TLabel", background=app, foreground=fg2,
+                         font=(ui_theme.FONT_MONO, 9))
+
+            for name in ("TNotebook", "secondary.TNotebook"):
+                st.configure(name, background=app, bordercolor=border,
+                             tabmargins=(2, 4, 2, 0))
+            st.configure("TNotebook.Tab", background=elev, foreground=fg2,
+                         bordercolor=border, padding=(10, 5))
+            st.map("TNotebook.Tab",
+                   background=[("selected", surf)],
+                   foreground=[("selected", brand)])
+
+            for name in ("Treeview", "Result.Treeview", "primary.Treeview"):
+                st.configure(name, background=inset, fieldbackground=inset,
+                             foreground=fg, bordercolor=inset,
+                             lightcolor=inset, darkcolor=inset, relief="flat")
+                st.map(name, background=[("selected", p["brand_soft"])],
+                       foreground=[("selected", fg)])
+            # 表头不画浮雕边框、不上重底色：贴住卡片底，只用一条细线分隔，
+            # 否则表头会变成一块深蓝板压在结果表上（设计稿里表头是弱化的）
+            for name in ("Treeview.Heading", "Result.Treeview.Heading"):
+                st.configure(name, background=app, foreground=p["text_muted"],
+                             bordercolor=app, lightcolor=app, darkcolor=app,
+                             relief="flat", padding=(4, 6))
+
+            # 根级 + bootstyle 变体都要配：ttkbootstrap 的变体样式名是
+            # <color>.<Type>.<Class>（如 secondary.Outline.TButton），
+            # 只配 TButton 覆盖不到，工具栏按钮就会留成 #222222 灰黑块。
+            for name in ("TEntry", "TCombobox", "TSpinbox"):
+                st.configure(name, background=elev, fieldbackground=elev,
+                             foreground=fg, bordercolor=border,
+                             insertcolor=fg, arrowcolor=fg2)
+            for name in ("TButton", "secondary.TButton"):
+                st.configure(name, background=elev, foreground=fg,
+                             bordercolor=border)
+            # 主操作按钮（开始执行）用设计稿的实心蓝，而不是主题自带的
+            # #375a7f / #2c3e50（后者在浅色下几乎是黑块，和品牌色不搭）
+            pf = p.get("primary_fill", brand)
+            st.configure("primary.TButton", background=pf,
+                         foreground=p["on_primary"], bordercolor=pf)
+            st.map("primary.TButton",
+                   background=[("disabled", elev), ("pressed", pf),
+                               ("active", pf)],
+                   foreground=[("disabled", p["text_muted"])])
+            for variant in ("primary", "secondary", "success", "info",
+                            "warning", "danger", "light", "dark"):
+                for base in ("TEntry", "TCombobox", "TSpinbox"):
+                    st.configure("%s.%s" % (variant, base),
+                                 background=elev, fieldbackground=elev,
+                                 foreground=fg, bordercolor=border,
+                                 insertcolor=fg, arrowcolor=fg2)
+                st.configure("%s.Outline.TButton" % variant,
+                             background=elev, foreground=fg2,
+                             bordercolor=border)
+                for kind in ("Round.Vertical.TScrollbar",
+                             "Round.Horizontal.TScrollbar",
+                             "Vertical.TScrollbar", "Horizontal.TScrollbar"):
+                    st.configure("%s.%s" % (variant, kind),
+                                 background=elev, troughcolor=app,
+                                 bordercolor=border, arrowcolor=fg2)
+            for name in ("TScrollbar", "Vertical.TScrollbar",
+                         "Horizontal.TScrollbar"):
+                st.configure(name, background=elev, troughcolor=app,
+                             bordercolor=border, arrowcolor=fg2)
+            st.configure("TCheckbutton", background=app, foreground=fg)
+            st.configure("TRadiobutton", background=app, foreground=fg)
+            st.map("danger.TLabel", background=[])
+            st.configure("danger.TLabel", background=app,
+                         foreground=p["danger"])
+            # 表单校验提示（ui/form_builder.py）用的自定义样式
+            st.configure("Error.TLabel", background=app,
+                         foreground=p["danger"])
+            st.configure("secondary.Inverse.TLabel", background=elev,
+                         foreground=fg)
+            for name in ("Round.Toggle", "secondary.Round.Toggle"):
+                st.configure(name, background=app, foreground=fg)
+            # tk 原生控件的默认底色也归到蓝调（显式 bg= 的仍然优先）
+            try:
+                self.root.option_add("*Background", app)
+                self.root.option_add("*Canvas.Background", app)
+                self.root.option_add("*Text.Background", inset)
+                self.root.option_add("*Entry.Background", elev)
+                self.root.option_add("*Listbox.Background", inset)
+            except Exception:
+                pass
+
+            for widget in getattr(self, "_text_widgets", ()):
+                try:
+                    widget.configure(background=inset, foreground=fg,
+                                     insertbackground=fg)
+                except Exception:
+                    pass
+            try:
+                self.form_canvas.configure(background=app)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _refresh_theme_colors(self):
+        """把语义 token 重新刷到所有 tk 原生控件上。
+
+        ttk 控件由 ttkbootstrap 主题自动管理；AppBar / Sidebar / KPI / chips
+        是 tk 原生控件（为了精确控制背景色与色条），主题切换时必须手动重刷。
+        """
+        p = ui_theme.palette(self._theme_mode)
+        # 先统一 ttk 控件配色（顺带修掉 secondary.TLabel 的 #444444 不可读问题）
+        self._configure_ttk_styles(p)
+
+        def paint(widget, bg, fg=None):
+            try:
+                kw = {"bg": bg}
+                if fg is not None:
+                    kw["fg"] = fg
+                widget.configure(**kw)
+            except Exception:
+                pass
+
+        paint(self.appbar, p["panel"])
+        paint(self.brand_box, p["panel"])
+        paint(self.brand_cn, p["panel"], p["text"])
+        paint(self.brand_en, p["panel"], p["text_muted"])
+        paint(self.global_status, p["panel"], p["text_secondary"])
+        try:
+            self.logo_canvas.configure(bg=p["panel"])
+            ui_theme.draw_logo(self.logo_canvas, p["brand"], 34)
+            self.avatar.configure(bg=p["panel"])
+            self.avatar.delete("all")
+            self.avatar.create_oval(1, 1, 29, 29, fill=p["brand"], outline="")
+            self.avatar.create_text(15, 15, text=self._avatar_text,
+                                    fill=p["brand_on"],
+                                    font=(FONT_FAMILY, 9, "bold"))
+        except Exception:
+            pass
+        for btn in getattr(self, "_icon_buttons", []):
+            try:
+                btn.configure(bg=p["panel"], fg=p["text_secondary"],
+                              activebackground=p["hover"],
+                              activeforeground=p["text"])
+            except Exception:
+                pass
+        self._sync_theme_button()
+
+        paint(self.sidebar, p["panel"])
+        paint(self.sidebar_head, p["panel"])
+        paint(self.sidebar_foot, p["panel"])
+        paint(self.search_caption, p["panel"], p["text_muted"])
+        paint(self.nav_canvas, p["panel"])
+        paint(self.nav_inner, p["panel"])
+        paint(self.nav_count, p["panel"], p["success"])
+        paint(self.nav_foot_hint, p["panel"], p["text_muted"])
+        paint(self.nav_foot_key, p["panel"], p["text_muted"])
+        paint(self.empty_label, p["panel"], p["danger"])
+        paint(self.fail_badge, p["panel"], p["warning"])
+
+        paint(self.kpi_strip, p["app"])
+        for _key, card_rec in self._kpi_cards.items():
+            (val, sub, ic, card, box, lbl, tone, corners, icon_name, top) = card_rec
+            paint(card, p["surface"])
+            paint(box, p["surface"])
+            paint(top, p["surface"])
+            paint(lbl, p["surface"], p["text_muted"])
+            paint(val, p["surface"], p[tone])
+            paint(sub, p["surface"], p["text_muted"])
+            paint(ic, p["surface"])
+            ui_widgets.paint_corners(corners, p["surface"], p["app"])
+            self._bind_icon(ic, icon_name, 14, color=p[tone], track=False)
+
+        # 参数卡片头 + 边框
+        paint(self.form_card, p["app"])
+        try:
+            self.form_card.configure(highlightbackground=p["border"])
+        except Exception:
+            pass
+        paint(self.form_head, p["app"])
+        paint(self.form_head_icon, p["app"])
+        paint(self.form_head_title, p["app"], p["text"])
+        paint(self.form_head_chip, p["elevated"], p["text_muted"])
+        paint(self.form_head_rule, p["border"])
+
+        # 页签 + 进度条（都是自绘控件，需要显式重绘）
+        try:
+            self.tabs.refresh(p)
+            self.progress.refresh(p)
+        except Exception:
+            pass
+        # 结果表工具栏里的分段筛选/字号标签/按钮图标
+        try:
+            self.result_view.refresh_theme(p)
+        except Exception:
+            pass
+
+        paint(self.cat_chip, p["elevated"])
+        if getattr(self, "current_tool", None):
+            self._update_head_chips(self.current_tool)
+        # 分类色随主题变，导航重建一次（保留当前选中项）
+        try:
+            self._render_tool_list()
+        except Exception:
+            pass
+        # 图标线条色也要跟着语义色板走：清缓存后重画
+        try:
+            icons.clear_cache()
+            self._refresh_icons()
+            self._refresh_tab_icons()
+        except Exception:
+            pass
 
     # —— 工具列表 ——
     def _load_tools(self):
@@ -885,30 +1501,109 @@ class MainWindow(object):
         self._render_tool_list()
 
     def _render_tool_list(self):
-        for item in self.tool_tree.get_children():
-            self.tool_tree.delete(item)
+        """按分类重建导航：分类色条 + 分类名 + 右侧计数 + 选中态（不显示版本号）。"""
+        p = ui_theme.palette(self._theme_mode)
+        for child in self.nav_inner.winfo_children():
+            child.destroy()
+        self._nav_items = {}
+        self._nav_groups = []      # (gh, bar, label, badge, 分类色)
         keyword = self.search_var.get().strip().lower()
+        shown = 0
         for category, tools in self.registry.by_category().items():
             items = [t for t in tools
-                     if not keyword or keyword in t.name.lower() or keyword in t.id.lower()]
+                     if not keyword or keyword in t.name.lower()
+                     or keyword in t.id.lower()]
             if not items:
                 continue
-            node = self.tool_tree.insert("", "end", text=category, open=True)
-            for t in items:
-                # 树里只放名字：加上 " (v1.0.0)" 后 260px 的树宽必然被截成
-                # "设备配置备份 (v1.0." 这种，版本号在右侧标题栏已有显示
-                self.tool_tree.insert(node, "end", iid=t.id, text=t.name)
+            color = ui_theme.category_color(category, self._theme_mode)
 
-    def on_select_tool(self, _event=None):
+            gh = tk.Frame(self.nav_inner, bg=p["panel"])
+            gh.pack(fill="x", pady=(12, 4))
+            # 分类头不再放图标（评审：图标只留给工具项，分类靠色条+文字区分），
+            # 计数徽章改为靠右对齐，和下方工具项形成清晰的左右边界。
+            group_bar = tk.Frame(gh, bg=color, width=3, height=10)
+            group_bar.pack(side="left", padx=(12, 7))
+            group_label = tk.Label(gh, text=category, bg=p["panel"],
+                                   fg=p["text_muted"],
+                                   font=(FONT_FAMILY, 9, "bold"))
+            group_label.pack(side="left")
+            # 计数徽章：中性浅底 + 次要文字色（浅色主题下 elevated 贴白底几乎看不见，
+            # 且 8pt 小字需要 ≥4.5:1 的对比度）
+            group_badge = tk.Label(gh, text=str(len(items)),
+                                   bg=p["neutral_soft"], fg=p["text_secondary"],
+                                   width=2, font=(ui_theme.FONT_MONO, 8), padx=4)
+            group_badge.pack(side="right", padx=(0, 8))
+            self._nav_groups.append((gh, group_bar, group_label, group_badge, color))
+
+            for t in items:
+                row = tk.Frame(self.nav_inner, bg=p["panel"], cursor="hand2")
+                row.pack(fill="x", padx=8, pady=1)
+                bar = tk.Frame(row, bg=p["panel"], width=3)
+                bar.pack(side="left", fill="y")
+                mark = tk.Label(row, bg=p["panel"])
+                mark.pack(side="left", padx=(2, 5))
+                self._bind_icon(mark, ui_theme.category_icon(category), 15,
+                                track=False, compound=False, color=color)
+                # 侧栏不再显示版本号，整行宽度留给工具名；极端长名仍做
+                # 省略号 + 悬浮完整名，绝不静默把字切掉。
+                display = t.name if len(t.name) <= 14 else t.name[:13] + "…"
+                name = tk.Label(row, text=display, bg=p["panel"],
+                                fg=p["text_secondary"],
+                                font=(FONT_FAMILY, 10), anchor="w")
+                name.pack(side="left", fill="x", expand=True)
+                if display != t.name:
+                    try:
+                        ToolTip(name, text=t.name, delay=400)
+                    except Exception:
+                        pass
+                for w in (row, bar, mark, name):
+                    w.bind("<Button-1>",
+                           lambda e, tid=t.id: self.on_select_tool(tid))
+                self._nav_items[t.id] = (row, bar, name, mark)
+                shown += 1
+
+        if not shown:
+            tk.Label(self.nav_inner, text="没有匹配的工具", bg=p["panel"],
+                     fg=p["text_muted"], font=(FONT_FAMILY, 10)).pack(pady=20)
+        try:
+            self.nav_count.configure(text="%d / %d 个工具已注册"
+                                          % (shown, len(self.registry.tools)))
+        except Exception:
+            pass
+        # tk 原生控件创建时背景可能被 option database 的 #222222 覆盖，
+        # 按角色显式重涂一次（工具项由 _highlight_nav 负责）。
+        for gh, bar, label, badge, c in self._nav_groups:
+            try:
+                gh.configure(bg=p["panel"])
+                bar.configure(bg=c)
+                label.configure(bg=p["panel"], fg=p["text_muted"])
+                badge.configure(bg=p["neutral_soft"], fg=p["text_secondary"])
+            except Exception:
+                pass
+        self._highlight_nav()
+        try:
+            self.nav_canvas.yview_moveto(0)
+            self.root.after_idle(self._on_nav_inner_configure)
+        except Exception:
+            pass
+
+    def on_select_tool(self, tool_id=None, _event=None):
+        """选中工具（导航项点击时传入 tool_id 字符串）。
+
+        只有「怎么拿到 tool_id」从 Treeview.selection() 换成了参数；
+        下面的切换/缓存/分栏贴合逻辑一行未动。
+        """
         if self.engine.is_running():
             Messagebox.show_info("任务执行中，请先中止或等待完成", title="提示")
             return
-        sel = self.tool_tree.selection()
-        if not sel:
-            return
-        tool = self.registry.get(sel[0])
+        tid = tool_id if isinstance(tool_id, str) else None
+        if not tid:
+            tid = getattr(self, "_nav_selected", None)
+        tool = self.registry.get(tid) if tid else None
         if tool is None:
             return
+        self._nav_selected = tid
+        self._highlight_nav()
 
         # 切换前把当前工具的全部输出（结果表/图表/日志/摘要）存入缓存
         self._save_outputs()
@@ -916,8 +1611,10 @@ class MainWindow(object):
         self._sync_sched_params()
 
         self.current_tool = tool
-        self.tool_title.configure(text="%s  v%s" % (tool.name, tool.version))
+        self.tool_title.configure(text=tool.name)
         self.tool_desc.configure(text=getattr(tool, "description", "") or "")
+        self._update_head_chips(tool)
+        self._reset_kpi()
 
         # 按工具的 output_tabs 声明重建输出标签页
         tabs = getattr(tool, "output_tabs", None) or ["result", "log", "summary"]
@@ -925,6 +1622,12 @@ class MainWindow(object):
 
         for child in self.form_frame.winfo_children():
             child.destroy()
+        try:
+            n = len(tool.params or [])
+            self.form_head_chip.configure(
+                text="%d 项参数" % n if n else "无参数")
+        except Exception:
+            pass
         # 参数区宽度决定排两列还是一列（窄窗口排两列会把第二列切在右边缘）
         self.form = FormBuilder(self.form_frame, tool.params,
                                 avail_width=self._form_avail_width())
@@ -961,6 +1664,10 @@ class MainWindow(object):
         self.progress_label.configure(text="尚未运行")
         self.progress.configure(value=0)
         try:
+            self.progress_value.configure(text="0%")
+        except Exception:
+            pass
+        try:
             self.current_label.configure(text="")
         except Exception:
             pass
@@ -984,19 +1691,13 @@ class MainWindow(object):
             return 800
 
     def _add_font_row(self):
-        """在参数区末尾追加一行字号设置；切换工具后依然存在并保留当前值。"""
-        row = 100          # 固定放在参数行之后
-        box = ttk.Frame(self.form_frame)
-        box.grid(row=row, column=0, columnspan=4, sticky="w", padx=10, pady=(2, 3))
-        ttk.Label(box, text="显示字号", bootstyle="secondary").pack(side="left")
-        spin = ttk.Spinbox(box, from_=MIN_FONT_SIZE, to=MAX_FONT_SIZE, width=5,
-                           textvariable=self.font_size_var, bootstyle="primary",
-                           command=self._on_font_size_change)
-        spin.pack(side="left", padx=(6, 4))
-        spin.bind("<Return>", lambda e: self._on_font_size_change())
-        spin.bind("<FocusOut>", lambda e: self._on_font_size_change())
-        ttk.Label(box, text="（作用于结果表/日志/摘要/图表，自动记忆）",
-                  bootstyle="secondary").pack(side="left", padx=(4, 0))
+        """已废弃：字号调节统一收敛到结果表工具栏的 A- / 12 / A+。
+
+        参数区底部再放一个「显示字号」Spinbox 属于同一功能的第二入口，
+        在 760px 高的窗口里白占 38px，还会把最后一行参数挤出可视区。
+        方法保留为空实现，避免外部调用点报错。
+        """
+        return
 
     # —— 参数区右侧：历史结果（工具声明 result_files_param 时显示）——
     def _result_files_folder(self):
@@ -1023,7 +1724,7 @@ class MainWindow(object):
         try:
             rowspan = max(1, self.form.footer_row())
             panel = ttk.Frame(self.form_frame)
-            panel.grid(row=0, column=4, rowspan=rowspan, sticky="nsew",
+            panel.grid(row=0, column=self.form.cols, rowspan=rowspan, sticky="nsew",
                        padx=(6, 8), pady=(4, 4))
             self.form_frame.columnconfigure(4, weight=2, minsize=200)
 
@@ -1238,7 +1939,7 @@ class MainWindow(object):
                 # 用户亲手拖过：优先尊重他的高度，只保证输出区还剩 OUTPUT_MIN_H_USER
                 need = min(user, max(120, total - OUTPUT_MIN_H_USER))
             else:
-                need = self.form_frame.winfo_reqheight() + 8   # 内容高度 + 边框
+                need = self.form_card.winfo_reqheight() + 6   # 卡片自然高度 + 上下留白
                 # 参数区优先完整显示，但不能把输出区压到 OUTPUT_MIN_H 以下；
                 # 参数实在放不下时由参数区自己的滚动条兜底
                 need = min(need, max(160, total - OUTPUT_MIN_H))
@@ -1249,11 +1950,25 @@ class MainWindow(object):
 
     # —— 参数区滚动 ——
     def _on_form_inner_configure(self, _event=None):
-        """参数内容变化 → 更新滚动范围。"""
+        """参数内容变化 → 更新滚动范围；高度变了顺带重新贴合分栏。"""
         try:
             self.form_canvas.configure(scrollregion=self.form_canvas.bbox("all"))
         except Exception:
             pass
+        # 卡片高度会因为「列数重排 / 历史结果面板显隐」二次变化，
+        # 只靠切换工具时那几次定时贴合，参数区会一直停在旧高度（例如按
+        # 带右侧面板的高度留了 333px，面板隐藏后输出区就只剩 147px）。
+        if getattr(self, "_form_autofit", True) and not getattr(self, "_form_folded", False):
+            job = getattr(self, "_fit_job", None)
+            if job:
+                try:
+                    self.root.after_cancel(job)
+                except Exception:
+                    pass
+            try:
+                self._fit_job = self.root.after(120, self._fit_form_pane)
+            except Exception:
+                self._fit_job = None
 
     def _on_form_canvas_configure(self, event):
         """参数区宽度变化 → 内容跟着变宽；比最小宽度还窄时保持最小宽度（可横向滚动）。
@@ -1292,10 +2007,9 @@ class MainWindow(object):
     def _reflow_form(self, width):
         self._reflow_job = None
         try:
-            from ui.form_builder import TWO_COLUMN_MIN_W, TWO_COLUMN_THRESHOLD
-            want = (len(self.form.params) >= TWO_COLUMN_THRESHOLD
-                    and float(width) >= TWO_COLUMN_MIN_W)
-            if bool(getattr(self.form, "two_col", True)) == want:
+            from ui.form_builder import columns_for
+            want = columns_for(len(self.form.params), width)
+            if int(getattr(self.form, "cols", 1)) == want:
                 # 表单不用重建，但历史结果面板要跟着宽度显示/隐藏
                 self._sync_result_panel(width)
                 return
@@ -1418,6 +2132,8 @@ class MainWindow(object):
     def _sync_fold_button(self):
         try:
             self.btn_fold.configure(text="展开参数" if self._form_folded else "收起参数")
+            self._bind_icon(self.btn_fold,
+                            "chevron_down" if self._form_folded else "chevron_up", 16)
         except Exception:
             pass
 
@@ -1555,7 +2271,7 @@ class MainWindow(object):
         self.btn_cancel.configure(text="中止中…" if state == CANCELLING else "中止")
 
         style, text = STATE_STYLE.get(state, ("secondary", state))
-        self.badge.configure(text=text, bootstyle="%s-inverse" % style)
+        self.badge.configure(text="● " + text, bootstyle="%s-inverse" % style)
 
     # —— 执行 ——
     def on_start(self):
@@ -1579,6 +2295,8 @@ class MainWindow(object):
             Messagebox.show_error(str(exc), title="启动失败")
             return
         self.set_state(RUNNING)
+        self._run_started_at = time.time()
+        self._update_kpi_from_engine()
         self.progress_label.configure(text="0/0")
         self._set_path_label(self.engine.output_dir or "")
 
@@ -1604,12 +2322,17 @@ class MainWindow(object):
             percent = (current * 100.0 / total) if total else 0
             self.progress.configure(value=percent)
             self.progress_label.configure(text="%d/%d" % (current, total))
+            try:
+                self.progress_value.configure(text="%d%%" % int(percent))
+            except Exception:
+                pass
             self.stat_label.configure(text="已处理 %d / %d" % (current, total))
             item = payload.get("item") or ""
             if len(item) > 40:
                 # 设备名可能很长（"路由器(BOSS-...)"），截断时保留前面的 IP
                 item = item[:39] + "…"
             self.current_label.configure(text=("当前：%s" % item) if item else "")
+            self._update_kpi_from_engine()
         elif value == "result":
             self.result_view.add_row(payload.get("row", []), payload.get("status", ""))
         elif value == "chart":
@@ -1622,6 +2345,7 @@ class MainWindow(object):
         elif value == "done":
             state = self.engine.state
             self.set_state(state)
+            self._update_kpi_from_engine(done=True)
             self.result_view.refresh()
             self._set_path_label(self.engine.output_dir or "")
             self.log_view.append("INFO", "任务结束：%s，结果目录：%s"

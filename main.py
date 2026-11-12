@@ -237,7 +237,10 @@ def _launch_gui():
     root = ttkbootstrap.Window(
         title="网络运维工具箱 v%s" % APP_VERSION,
         themename=pref["theme"],
-        size=(1180, 760),
+        # 1180x760 是「标签在左」时代的默认值；改成语义化布局后，卡片头 +
+        # KPI 条 + 标签置顶的表单 + 下划线页签比原来高约 100px，760 高会把
+        # 参数区第三行和结果表同时挤成半截。1920×1080 上放得下 1240×860。
+        size=(1240, 860),
         hdpi=True,
     )
     root.minsize(1000, 640)  # 避免窗口被缩到控件重叠

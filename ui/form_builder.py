@@ -3,6 +3,12 @@
 
 新增工具无需手写界面：声明 params 即可自动生成控件。
 
+布局（v0.2 设计评审第二轮）：
+    每个参数是一个独立单元格 —— 标签在上、控件在下且撑满整列。
+    原来是「标签在左、控件在右」，标签列白占 120px 且控件宽度参差不齐，
+    和设计稿差得最远；改成标签置顶后，控件宽度统一、纵向对齐，
+    也顺手去掉了标签列的最小宽度限制。
+
 ttkbootstrap 升级点：
     1. 帮助文本从常驻的第 4 列改为鼠标悬停的 ToolTip，横向空间还给控件
     2. 校验失败提示移到控件正下方，使用主题的 danger 语义色
@@ -23,18 +29,36 @@ import ttkbootstrap as ttk
 from ttkbootstrap.tooltip import ToolTip
 from typing import Any, Dict, List, Optional, Tuple
 
-# 超过此数量切换到双列
+# 列数策略：参数多且窗口宽时自动加列，保证一屏能看全（标签置顶后每行更高，
+# 2 列 × 3 行在 1180×760 下放不进参数区，只能靠滚动，体验很差）
+THREE_COLUMN_THRESHOLD = 6
+THREE_COLUMN_MIN_W = 860
 TWO_COLUMN_THRESHOLD = 5
 TWO_COLUMN_MIN_W = 700   # 参数区窄于此宽度就不排两列（否则第二列被切在边缘）
+ASSUMED_WIDE = 1200      # 布局尚未完成（拿不到宽度）时按这个宽度算列数
 
 # 有 help 时在标签后追加的细体提示符（U+2009 细空格 + 问号）
 HELP_MARK = "\u2009?"
 
-ENTRY_WIDTH = 28
-COMBO_WIDTH = 26
-SPIN_WIDTH = 10
-LABEL_MIN_W = 120     # 标签列最小宽度（窄窗口下不再被压缩到看不见）
-WIDGET_MIN_W = 170    # 控件列最小宽度（Dropbox/Spinbox 至少能放下内容）
+# 控件请求宽度（标签置顶后可适当收窄：控件会 sticky="ew" 撑满整列）
+ENTRY_WIDTH = 22
+COMBO_WIDTH = 20
+SPIN_WIDTH = 12
+WIDGET_MIN_W = 190    # 单元格最小宽度（下拉框/路径框至少能放下内容）
+COL_GAP = 16          # 列间距
+
+
+def columns_for(count, width):
+    """按参数数量与可用宽度决定排几列（1 / 2 / 3）。"""
+    try:
+        w = float(width) if width else ASSUMED_WIDE
+    except (TypeError, ValueError):
+        w = ASSUMED_WIDE
+    if count >= THREE_COLUMN_THRESHOLD and w >= THREE_COLUMN_MIN_W:
+        return 3
+    if count >= TWO_COLUMN_THRESHOLD and w >= TWO_COLUMN_MIN_W:
+        return 2
+    return 1
 
 
 class FormBuilder(object):
@@ -55,16 +79,21 @@ class FormBuilder(object):
         self._build()
 
     def footer_row(self):
-        """最后一行参数之后可用的 grid 行号。
+        """最后一个参数行之后可用的 grid 行号。
 
         外部要在参数区下面挂东西（如「定时执行」条）时用，
         避免用 pack 与本组件的 grid 混用（tkinter 会直接报错）。
+        标签置顶后每个参数占 1 个单元格、1 个 grid 行，不再 ×2。
         """
         n = len(self.params)
         if not n:
             return 0
-        rows = (n + 1) // 2 if getattr(self, "two_col", False) else n
-        return rows * 2
+        cols = max(1, getattr(self, "cols", 1))
+        return (n + cols - 1) // cols
+
+    def footer_span(self):
+        """下面那行应该跨几列（与当前列数一致）。"""
+        return max(1, getattr(self, "cols", 1))
 
     def refresh_dynamic_options(self):
         """重新拉取 options_provider 并更新 Combobox，保持用户已选的「值」不变。
@@ -103,84 +132,77 @@ class FormBuilder(object):
 
     # —— 渲染 ——
     def _build(self):
-        two_col = len(self.params) >= TWO_COLUMN_THRESHOLD
-        if two_col and self.avail_width:
-            try:
-                two_col = float(self.avail_width) >= TWO_COLUMN_MIN_W
-            except (TypeError, ValueError):
-                pass
-        self.two_col = two_col
+        cols = columns_for(len(self.params), self.avail_width)
+        self.cols = cols
+        # two_col 保留给旧调用方（结果面板 / 历史逻辑）判断是否多列
+        self.two_col = cols >= 2
         for index, spec in enumerate(self.params):
-            row = index // 2 if two_col else index
-            col = (index % 2) * 2 if two_col else 0
+            row = index // cols
+            col = index % cols
+
+            # 一个参数 = 一个单元格容器（标签 → 控件 → 错误提示纵向排开）。
+            # 用独立容器而不是直接往 master 上塞三行，是为了让 grid 行号
+            # 只跟「第几个参数」有关，footer_row() 和外部挂的定时条才算得准。
+            cell = ttk.Frame(self.master)
+            cell.grid(row=row, column=col, sticky="ew",
+                      padx=(0 if col == 0 else COL_GAP, 0), pady=(0, 7))
+            cell.columnconfigure(0, weight=1)
 
             label_text = spec.label + (" *" if spec.required else "")
             if spec.help:
                 label_text += HELP_MARK
-            label = ttk.Label(self.master, text=label_text, bootstyle="secondary")
-            label.grid(row=row * 2, column=col, sticky="w", padx=(10, 6), pady=(4, 1))
+            label = ttk.Label(cell, text=label_text, bootstyle="secondary")
+            label.grid(row=0, column=0, sticky="w", pady=(0, 2))
             if spec.help:
                 ToolTip(label, text=spec.help, delay=400)
 
             var = tk.StringVar()
             if spec.default is not None:
                 var.set(str(spec.default))
-            widget = self._make_widget(row, col, spec, var)
+            widget = self._make_widget(cell, spec, var)
+            widget.grid(row=1, column=0, sticky="ew")
             # bool 类型在 _make_widget 中已建立 BooleanVar，这里不能再被 StringVar 覆盖
             # （否则取值为字符串 "False"，bool("False") 为 True，勾选框会永远生效）
             if spec.type != "bool":
                 self.vars[spec.key] = var
             self.widgets[spec.key] = widget
 
-            err = ttk.Label(self.master, text="", bootstyle="danger")
-            err.grid(row=row * 2 + 1, column=col, sticky="w", padx=(10, 6))
+            # 用自定义样式而非 bootstyle="danger"：ttkbootstrap 的 danger.TLabel
+            # 会带上 #222222 灰底，与深蓝主题不协调；Error.TLabel 由主窗口
+            # 的 _configure_ttk_styles() 按语义 token 统一着色。
+            err = ttk.Label(cell, text="", style="Error.TLabel")
+            err.grid(row=2, column=0, sticky="w", pady=(2, 0))
             # 默认隐藏：空标签也占约 20px 高度，参数多时会挤占结果区空间
             err.grid_remove()
             self.error_labels[spec.key] = err
 
-        # 给控件列设最小宽度：容器变窄时 ttk.grid 会把带 weight 的列按比例压缩，
-        # 960×620 下参数区只剩 630px，Spinbox 被压到 20px、下拉框只剩一个"最"字。
-        # 定了 minsize 之后，空间不够时宁可撑出横向滚动，也不会把输入框压没。
-        if two_col:
-            self.master.columnconfigure(1, weight=1, minsize=WIDGET_MIN_W)
-            self.master.columnconfigure(3, weight=1, minsize=WIDGET_MIN_W)
-            self.master.columnconfigure(0, minsize=LABEL_MIN_W)
-            self.master.columnconfigure(2, minsize=LABEL_MIN_W)
-        else:
-            self.master.columnconfigure(1, weight=1, minsize=WIDGET_MIN_W)
-            self.master.columnconfigure(0, minsize=LABEL_MIN_W)
+        # 单元格等宽：容器变窄时按比例压缩，但每列不低于 WIDGET_MIN_W，
+        # 否则 960×620 下 Spinbox 会被压到只有 20px、下拉框只剩一个汉字。
+        for c in range(cols):
+            self.master.columnconfigure(c, weight=1, minsize=WIDGET_MIN_W)
         # 排布所需的最小宽度：参数区比它还窄时才需要横向滚动
-        cols = 2 if two_col else 1
-        self.min_width = cols * (LABEL_MIN_W + WIDGET_MIN_W) + cols * 16 + 12
+        self.min_width = cols * WIDGET_MIN_W + (cols - 1) * COL_GAP + 26
 
-    def _make_widget(self, row, col, spec, var):
-        grid_row = row * 2
-
+    def _make_widget(self, cell, spec, var):
         if spec.type == "int":
-            w = ttk.Spinbox(self.master, from_=spec.min or 0, to=spec.max or 9999,
+            w = ttk.Spinbox(cell, from_=spec.min or 0, to=spec.max or 9999,
                             textvariable=var, width=SPIN_WIDTH, bootstyle="primary")
-            w.grid(row=grid_row, column=col + 1, sticky="w", padx=(0, 10), pady=(4, 1))
             return w
 
         if spec.type == "bool":
             bv = tk.BooleanVar(value=bool(spec.default))
             self.vars[spec.key] = bv
+            box = ttk.Frame(cell)
             # 部分主题/版本下 round-toggle 布局缺失会抛 TclError，
             # 回退到原生 Checkbutton，保证表单一定能渲染出来
-            w = None
             try:
-                w = ttk.Checkbutton(self.master, variable=bv, text="",
-                                    bootstyle="round-toggle")
-                w.grid(row=grid_row, column=col + 1, sticky="w", padx=(0, 10), pady=(4, 1))
+                chk = ttk.Checkbutton(box, variable=bv, text="",
+                                      bootstyle="round-toggle")
+                chk.pack(side="left", pady=(4, 0))
             except Exception:
-                try:
-                    if w is not None:
-                        w.destroy()
-                except Exception:
-                    pass
-                w = tk.Checkbutton(self.master, variable=bv, text="")
-                w.grid(row=grid_row, column=col + 1, sticky="w", padx=(0, 10), pady=(4, 1))
-            return w
+                chk = tk.Checkbutton(box, variable=bv, text="")
+                chk.pack(side="left", pady=(4, 0))
+            return box
 
         if spec.type == "choice":
             # 优先使用动态选项（依赖运行时数据，如历史日期/可选设备）
@@ -198,7 +220,7 @@ class FormBuilder(object):
                 labels.append(lab)
                 mapping[lab] = opt.get("value", lab)
             self._choice_map[spec.key] = mapping
-            w = ttk.Combobox(self.master, textvariable=var, values=labels,
+            w = ttk.Combobox(cell, textvariable=var, values=labels,
                              state="readonly", width=COMBO_WIDTH, bootstyle="primary")
             if spec.default is None:
                 if labels:
@@ -210,30 +232,30 @@ class FormBuilder(object):
                         break
                 else:
                     var.set(str(spec.default))
-            w.grid(row=grid_row, column=col + 1, sticky="w", padx=(0, 10), pady=(4, 1))
             return w
 
         if spec.type == "password":
-            w = ttk.Entry(self.master, textvariable=var, show="*", width=ENTRY_WIDTH)
-            w.grid(row=grid_row, column=col + 1, sticky="w", padx=(0, 10), pady=(4, 1))
-            return w
+            return ttk.Entry(cell, textvariable=var, show="*", width=ENTRY_WIDTH)
 
         if spec.type in ("file", "dir", "device_list"):
-            frame = ttk.Frame(self.master)
-            frame.grid(row=grid_row, column=col + 1, sticky="w", padx=(0, 10), pady=(4, 1))
-            entry = ttk.Entry(frame, textvariable=var, width=ENTRY_WIDTH - 8)
-            entry.pack(side="left")
-            ttk.Button(frame, text="选择…", width=8, bootstyle="secondary",
-                       command=lambda s=spec, v=var: self._pick_path(s, v)).pack(side="left", padx=4)
+            frame = ttk.Frame(cell)
+            row = ttk.Frame(frame)
+            row.pack(fill="x")
+            entry = ttk.Entry(row, textvariable=var, width=ENTRY_WIDTH - 6)
+            entry.pack(side="left", fill="x", expand=True)
+            ttk.Button(row, text="选择…", width=7, bootstyle="secondary",
+                       command=lambda s=spec, v=var: self._pick_path(s, v)
+                       ).pack(side="left", padx=(6, 0))
             if spec.type == "device_list":
-                self._device_count_label = ttk.Label(frame, text="未选择设备清单文件",
+                # 清单校验结果放在输入框下方（设计稿也是这样），
+                # 否则会横着挤占输入框宽度、还把相邻列顶掉。
+                # 初始不 pack：空态那句「未选择设备清单文件」纯属噪音，
+                # 白白占掉 19px 行高，参数区的可视行数就是这么被吃掉的。
+                self._device_count_label = ttk.Label(frame, text="",
                                                      bootstyle="secondary")
-                self._device_count_label.pack(side="left", padx=4)
             return frame
 
-        w = ttk.Entry(self.master, textvariable=var, width=ENTRY_WIDTH)
-        w.grid(row=grid_row, column=col + 1, sticky="w", padx=(0, 10), pady=(4, 1))
-        return w
+        return ttk.Entry(cell, textvariable=var, width=ENTRY_WIDTH)
 
     def _pick_path(self, spec, var):
         from tkinter import filedialog
@@ -266,6 +288,11 @@ class FormBuilder(object):
             text += "，%d 条提示" % len(errors)
         self._device_count_label.configure(text=text,
                                            bootstyle="warning" if errors else "success")
+        try:
+            if not self._device_count_label.winfo_ismapped():
+                self._device_count_label.pack(anchor="w", pady=(3, 0))
+        except Exception:
+            pass
         tip = "\n".join(errors[:8])
         if len(errors) > 8:
             tip += "\n… 还有 %d 条" % (len(errors) - 8)

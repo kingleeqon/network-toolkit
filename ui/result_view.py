@@ -20,7 +20,19 @@ from tkinter import filedialog
 from ttkbootstrap.dialogs import Messagebox
 from typing import Any, Dict, List, Optional, Tuple
 
+from ui import icons
+from ui import theme as ui_theme
+from ui import widgets as ui_widgets
+
 FILTERS = ["全部", "成功", "失败"]
+
+
+def current_palette():
+    """按当前实际生效的 ttk 主题取语义色板（自绘控件要用）。"""
+    try:
+        return ui_theme.palette(ui_theme.mode_of(ttk.Style().theme.name))
+    except Exception:
+        return ui_theme.palette("dark")
 
 
 def _shift_color(hex_color, pct=0.06):
@@ -90,27 +102,82 @@ class ResultView(object):
 
     # —— 构建 ——
     def _build_toolbar(self):
+        """结果表工具栏：左分段筛选 + 右字号步进/导出（对齐设计稿）。"""
+        p = current_palette()
         top = ttk.Frame(self.frame)
         top.pack(side="top", fill="x", pady=(0, 6))
-        ttk.Label(top, text="筛选：", bootstyle="secondary").pack(side="left")
-        box = ttk.Combobox(top, textvariable=self._filter_var, values=FILTERS,
-                           state="readonly", width=8, bootstyle="primary")
-        box.pack(side="left")
-        box.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        # 原来是「筛选：」+ 下拉框，看起来像表单而不像工具栏；
+        # 换成扁平分段控件后，一行就能看出有哪些筛选档位。
+        self.seg = ui_widgets.Segmented(top, FILTERS, value=self._filter_var.get(),
+                                        command=self._on_filter, p=p)
+        self.seg.pack(side="left")
         self.count_label = ttk.Label(top, text="", bootstyle="secondary")
         self.count_label.pack(side="left", padx=10)
-        # 字号就放在表格工具栏上（原来只在参数区底部有个 Spinbox，不好找）
-        ttk.Button(top, text="A-", width=3, bootstyle="secondary-outline",
-                   command=lambda: self._bump_font(-1)).pack(side="right", padx=(4, 0))
-        ttk.Button(top, text="A+", width=3, bootstyle="secondary-outline",
-                   command=lambda: self._bump_font(1)).pack(side="right")
-        ttk.Button(top, text="默认", bootstyle="secondary-outline",
-                   command=lambda: self._set_font_and_notify(DEFAULT_FONT_SIZE)
-                   ).pack(side="right", padx=(0, 6))
-        ttk.Button(top, text="导出 Excel", bootstyle="secondary-outline",
-                   command=lambda: self.export(".xlsx")).pack(side="right", padx=4)
-        ttk.Button(top, text="导出 CSV", bootstyle="secondary-outline",
-                   command=lambda: self.export(".csv")).pack(side="right")
+
+        self._icon_buttons = []
+        # 从右往左 pack：导出 Excel 最右，其后依次是导出 CSV、A+、字号、A-
+        for text, icon_name, suffix in (
+                ("导出 Excel", "table", ".xlsx"),
+                ("导出 CSV", "download", ".csv")):
+            b = ttk.Button(top, text=text, bootstyle="secondary-outline",
+                           command=lambda s=suffix: self.export(s))
+            b.pack(side="right", padx=(6, 0))
+            self._icon_buttons.append((b, icon_name))
+        self.btn_plus = ttk.Button(top, text="A+", width=2,
+                                   bootstyle="secondary-outline",
+                                   command=lambda: self._bump_font(1))
+        self.btn_plus.pack(side="right", padx=(8, 0))
+        # 当前字号可点击复位到默认值（替代原来那个占位的「默认」按钮）
+        self.lbl_size = tk.Label(top, text=str(DEFAULT_FONT_SIZE), cursor="hand2",
+                                 font=(ui_theme.FONT_SANS, 9), width=3)
+        self.lbl_size.pack(side="right")
+        self.lbl_size.bind("<Button-1>",
+                           lambda e: self._set_font_and_notify(DEFAULT_FONT_SIZE))
+        try:
+            from ttkbootstrap.tooltip import ToolTip
+            ToolTip(self.lbl_size,
+                    text="点一下恢复 %d 号；结果表/日志里也可 Ctrl+滚轮缩放"
+                         % DEFAULT_FONT_SIZE, delay=400)
+        except Exception:
+            pass
+        self.btn_minus = ttk.Button(top, text="A-", width=2,
+                                    bootstyle="secondary-outline",
+                                    command=lambda: self._bump_font(-1))
+        self.btn_minus.pack(side="right")
+        self._apply_sizes(p)
+        self._apply_icons(p)
+
+    def _apply_sizes(self, p):
+        try:
+            self.lbl_size.configure(bg=p.get("app", "#0a1120"),
+                                    fg=p.get("text_secondary", "#a8bad2"))
+        except Exception:
+            pass
+
+    def _apply_icons(self, p):
+        tint = p.get("text_secondary", "#a8bad2")
+        for btn, name in getattr(self, "_icon_buttons", []):
+            try:
+                photo = icons.get(name, tint, 15)
+                btn.configure(image=photo, compound="left")
+                btn._ntk_icon = photo
+            except Exception:
+                pass
+
+    def refresh_theme(self, p=None):
+        """主题切换后重绘自绘控件（分段筛选、字号标签、按钮图标）。"""
+        p = p or current_palette()
+        try:
+            self.seg.refresh(p)
+        except Exception:
+            pass
+        self._apply_sizes(p)
+        self._apply_icons(p)
+        self.refresh_tag_colors()
+
+    def _on_filter(self, value):
+        self._filter_var.set(value)
+        self.refresh()
 
     def _bump_font(self, step):
         self._set_font_and_notify(max(MIN_FONT_SIZE,
@@ -209,9 +276,11 @@ class ResultView(object):
         try:
             colors = ttk.Style().colors
             fail_fg = colors.danger
+            warn_fg = colors.warning
         except Exception:
-            fail_fg = "#c0392b"
+            fail_fg, warn_fg = "#c0392b", "#b9770e"
         self.tree.tag_configure("fail", foreground=fail_fg)
+        self.tree.tag_configure("partial", foreground=warn_fg)
         # 斑马纹：隔行浅色底，长表格不容易看错行
         try:
             style = ttk.Style()
@@ -233,7 +302,11 @@ class ResultView(object):
             style = ttk.Style()
             style.configure("Result.Treeview", font=(family, size),
                             rowheight=int(size * 2.2))
-            style.configure("Result.Treeview.Heading", font=(family, size, "bold"))
+            style.configure("Result.Treeview.Heading", font=(family, size))
+        except Exception:
+            pass
+        try:
+            self.lbl_size.configure(text=str(size))
         except Exception:
             pass
         # 再挂一次样式：主题切换/控件重建后 style 可能被重置回去
@@ -287,19 +360,42 @@ class ResultView(object):
                 text="共 %d 行（显示 %d 行）" % (len(self.rows), len(self.rows)))
             self.empty_label.pack_forget()
 
+    def _display_row(self, row):
+        """状态列加圆点前缀，让颜色之外还有形状可辨（WCAG 不靠颜色单通道）。
+
+        只改显示值，self.rows / 排序 / 导出仍用原始中文文案，不受影响。
+        """
+        try:
+            idx = self.columns.index("状态")
+        except (ValueError, AttributeError):
+            return row
+        out = list(row)
+        if idx < len(out):
+            text = str(out[idx])
+            if text == "成功":
+                out[idx] = "● " + text
+            elif text == "部分成功":
+                out[idx] = "◐ " + text
+            elif text:
+                out[idx] = "○ " + text
+        return out
+
     def _insert(self, row, status, idx=0):
-        # 失败行优先用红字；其余隔行加底色
+        # 失败行用 danger、部分成功用 warning，其余隔行加底色
         if status not in ("OK", "PARTIAL_OK"):
             tags = ("fail",)
+        elif status == "PARTIAL_OK":
+            tags = ("partial",)
         elif idx % 2 == 1:
             tags = ("zebra",)
         else:
             tags = ()
+        shown = self._display_row(row)
         try:
-            self.tree.insert("", "end", values=row, tags=tags)
+            self.tree.insert("", "end", values=shown, tags=tags)
         except Exception:
             # 行长度与列数不一致时 Treeview 会抛错，兜底补齐后再插
-            padded = list(row) + [""] * (len(self.columns) - len(row))
+            padded = list(shown) + [""] * (len(self.columns) - len(shown))
             self.tree.insert("", "end", values=padded[:len(self.columns)], tags=tags)
 
     def refresh(self):

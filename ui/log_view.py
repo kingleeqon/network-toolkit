@@ -67,9 +67,9 @@ class LogView(object):
             self.level_tags[level] = tag
 
     def set_font_size(self, size):
-        """调整日志字号。"""
+        """调整日志字号：用等宽字体，时间戳 / 等级 / IP 三列才对得齐。"""
         try:
-            self.text.configure(font=("Microsoft YaHei UI", size))
+            self.text.configure(font=("Consolas", size))
         except Exception:
             pass
 
