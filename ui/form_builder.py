@@ -12,7 +12,8 @@
 ttkbootstrap 升级点：
     1. 帮助文本从常驻的第 4 列改为鼠标悬停的 ToolTip，横向空间还给控件
     2. 校验失败提示移到控件正下方，使用主题的 danger 语义色
-    3. 参数多于 4 项时自动双列；否则单列，避免短表单被无谓拉宽
+    3. 参数多于 4 项时自动双列；否则单列，且每个单元格宽度封顶，
+      避免短表单里输入框被拉成一整条横贯参数区的「长框」
     4. choice 类型取值修正：返回 value 而非展示用的 label
 
 对外接口保持不变（ui/main_window.py 依赖）：
@@ -20,6 +21,7 @@ ttkbootstrap 升级点：
     get_values() -> Dict[str, Any]
     set_enabled(bool)
     refresh_device_count(path) -> Tuple[int, List[str]]
+    on_device_count(path, count, errors) 回调：清单加载完通知主窗口回填「设备总数」
 
 Python 3.8 兼容：类型注解一律使用 typing。
 """
@@ -45,6 +47,7 @@ ENTRY_WIDTH = 22
 COMBO_WIDTH = 20
 SPIN_WIDTH = 12
 WIDGET_MIN_W = 190    # 单元格最小宽度（下拉框/路径框至少能放下内容）
+CELL_MAX_W = 320      # 单元格宽度上限：多余空间让给历史结果面板/留白
 COL_GAP = 16          # 列间距
 
 
@@ -64,9 +67,10 @@ def columns_for(count, width):
 class FormBuilder(object):
     """按 ParamSpec 列表渲染表单；提供校验与取值。"""
 
-    def __init__(self, master, params, avail_width=None):
+    def __init__(self, master, params, avail_width=None, on_device_count=None):
         self.master = master
         self.params = list(params or [])
+        self.on_device_count = on_device_count
         # 参数区实际宽度：决定排两列还是一列。
         # 两列至少要 700px（标签 120 + 控件 230 各两组），960×620 下参数区只有
         # 635px，硬排两列会把第二列切在右边缘，只能横向拖动才能看到
@@ -143,8 +147,10 @@ class FormBuilder(object):
             # 一个参数 = 一个单元格容器（标签 → 控件 → 错误提示纵向排开）。
             # 用独立容器而不是直接往 master 上塞三行，是为了让 grid 行号
             # 只跟「第几个参数」有关，footer_row() 和外部挂的定时条才算得准。
-            cell = ttk.Frame(self.master)
-            cell.grid(row=row, column=col, sticky="ew",
+            cell = ttk.Frame(self.master, width=CELL_MAX_W)
+            # sticky="w" 而不是 "ew"：单元格保持 320px 上限，不跟着
+            # 参数区的整幅宽度被拉长；内部控件仍 sticky="ew" 撑满该单元格
+            cell.grid(row=row, column=col, sticky="w",
                       padx=(0 if col == 0 else COL_GAP, 0), pady=(0, 7))
             cell.columnconfigure(0, weight=1)
 
@@ -176,12 +182,17 @@ class FormBuilder(object):
             err.grid_remove()
             self.error_labels[spec.key] = err
 
-        # 单元格等宽：容器变窄时按比例压缩，但每列不低于 WIDGET_MIN_W，
-        # 否则 960×620 下 Spinbox 会被压到只有 20px、下拉框只剩一个汉字。
+        # 先清掉列数重排前残留的权重/最小宽（3 列→1 列时旧的第 3 列
+        # 还留着 weight=2，会把剩余宽度吞掉一半变成死空白）。
+        for c in range(6):
+            self.master.columnconfigure(c, weight=0, minsize=0)
+        # 参数列不再分摊剩余宽度（weight=1 会把单列表单的输入框拉成 1000px+）；
+        # 多余的横向空间统一交给末尾第 cols 列（历史结果面板或留白）。
         for c in range(cols):
-            self.master.columnconfigure(c, weight=1, minsize=WIDGET_MIN_W)
+            self.master.columnconfigure(c, weight=0, minsize=WIDGET_MIN_W)
+        self.master.columnconfigure(cols, weight=1, minsize=0)
         # 排布所需的最小宽度：参数区比它还窄时才需要横向滚动
-        self.min_width = cols * WIDGET_MIN_W + (cols - 1) * COL_GAP + 26
+        self.min_width = cols * CELL_MAX_W + (cols - 1) * COL_GAP + 26
 
     def _make_widget(self, cell, spec, var):
         if spec.type == "int":
@@ -278,22 +289,39 @@ class FormBuilder(object):
 
         异常原因放进悬浮提示：只显示"异常 N 行"用户根本不知道该改什么
         （比如"清单里没有凭证列"这种一句话就能定位的问题）。
+        同时通知主窗口把「设备总数」KPI 填上 —— 设计稿口径就是
+        「本次清单已加载」，不是等任务跑完才有值。
         """
         if not self._device_count_label:
             return 0, []
         from infra.device_loader import load_devices
         devices, errors = load_devices(path)
-        text = "已加载 %d 台" % len(devices)
+        count = len(devices)
+        self.set_device_count(count, errors)
+        cb = getattr(self, "on_device_count", None)
+        if cb:
+            try:
+                cb(path, count, errors)
+            except Exception:
+                pass
+        return count, errors
+
+    def set_device_count(self, count, errors=None):
+        """只回显计数（切工具复用缓存时用，不重读 Excel）。"""
+        if not self._device_count_label:
+            return
+        errors = list(errors or [])
+        text = "已加载 %d 台" % count
         if errors:
             text += "，%d 条提示" % len(errors)
-        self._device_count_label.configure(text=text,
-                                           bootstyle="warning" if errors else "success")
+        self._device_count_label.configure(
+            text=text, bootstyle="warning" if errors else "success")
         try:
             if not self._device_count_label.winfo_ismapped():
                 self._device_count_label.pack(anchor="w", pady=(3, 0))
         except Exception:
             pass
-        tip = "\n".join(errors[:8])
+        tip = "\n".join(str(e) for e in errors[:8])
         if len(errors) > 8:
             tip += "\n… 还有 %d 条" % (len(errors) - 8)
         try:
@@ -303,10 +331,10 @@ class FormBuilder(object):
                 old.toplevel.destroy()
                 self._device_count_tip = None
             if tip:
-                self._device_count_tip = ToolTip(self._device_count_label, text=tip, delay=200)
+                self._device_count_tip = ToolTip(self._device_count_label,
+                                                 text=tip, delay=200)
         except Exception:
             pass
-        return len(devices), errors
 
     # —— 校验与取值 ——
     def validate(self):

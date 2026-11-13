@@ -98,14 +98,14 @@ class Meter(tk.Canvas):
     主窗口里原有的进度更新代码一行都不用改。
     """
 
-    def __init__(self, master, width=150, height=20, p=None):
+    def __init__(self, master, width=150, height=20, p=None, thick=6):
         p = p or {}
         tk.Canvas.__init__(self, master, width=width, height=height,
                            highlightthickness=0, bd=0,
                            bg=p.get("app", "#0a1120"))
         self._p = dict(p)
         self._value = 0.0
-        self._thick = 6
+        self._thick = int(thick)
         self.bind("<Configure>", lambda e: self._draw())
 
     # —— 与 Floodgauge 对齐的取值接口 ——
@@ -141,8 +141,10 @@ class Meter(tk.Canvas):
             mid = h / 2.0
             t = self._thick
             pad = t / 2.0 + 1
-            # 浅色主题下 elevated(#f7fafd) 贴在白底上几乎看不见，track 改用 border
-            track = (p.get("border") if _is_light(p.get("app"))
+            # 浅色主题下 elevated(#f7fafd) 贴在白底上几乎看不见；
+            # border(#dce4ef) 也太淡，用 border_strong(#c2d0e2) 才有存在感
+            track = ((p.get("border_strong") or p.get("border"))
+                     if _is_light(p.get("app"))
                      else p.get("elevated", "#1a2b46"))
             brand = p.get("brand", "#22d3ee")
             # capstyle="round" 让线两端自带半圆，天然就是胶囊形

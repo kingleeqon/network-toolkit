@@ -141,6 +141,10 @@ class MainWindow(object):
         self._nav_selected = None
         self._kpi_cards = {}          # key -> (value_lbl, sub_lbl, accent_bar)
         self._run_started_at = None
+        # 清单设备数（设计稿口径：设备总数 = 本次清单已加载）；
+        # 按文件指纹缓存，切工具/窗口重排时不重复读 Excel
+        self._planned_total = 0
+        self._dev_count_cache = {}    # path -> ((mtime_ns, size), count, errors)
         self._icon_bindings = {}      # tk 路径 -> (widget, icon名, 尺寸, 语义色键)
         self._tab_icons = {}          # tab key -> PhotoImage（必须持有引用）
         # 用户上次手工拖出来的参数区高度（0 = 没拖过，按内容自动贴合）
@@ -173,16 +177,23 @@ class MainWindow(object):
         self.root.after(2000, self._tick_sched_status)
         self._apply_font_size()
         self._poll()
-        # F11 全屏 / Esc 退出全屏：全屏时布局全靠 grid 权重自适应
-        self.root.bind("<F11>", self.toggle_fullscreen)
-        self.root.bind("<Escape>", lambda e: self.toggle_fullscreen(False))
+        # F11 全屏 / Esc 退出全屏。必须 bind_all：bind 只挂在根窗口上，
+        # 焦点落到输入框/结果表后快捷键收不到，进全屏就退不出来。
+        self.root.bind_all("<F11>", lambda e: self.toggle_fullscreen())
+        self.root.bind_all("<Escape>", lambda e: self.toggle_fullscreen(False))
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def toggle_fullscreen(self, force=None):
-        """F11 全屏开关（force=False 表示退出）。"""
+        """F11 全屏开关；force=False 强制退出。
+
+        快捷键回调会把 Tk event 作为第一个位置参数传进来 —— 不能把它当
+        force：bool(event) 恒为 True，再按 F11 会一直「进入全屏」退不出来。
+        """
+        if force is not None and not isinstance(force, bool):
+            force = None                 # Tk event / 其他对象一律按切换处理
         try:
             cur = bool(self.root.attributes("-fullscreen"))
-            want = (not cur) if force is None else bool(force)
+            want = (not cur) if force is None else force
             self.root.attributes("-fullscreen", want)
         except Exception:
             return
@@ -349,7 +360,7 @@ class MainWindow(object):
                                       font=(FONT_FAMILY, 9), wraplength=238,
                                       justify="left")
         self.nav_foot_hint.pack(anchor="w", pady=(2, 0))
-        self.nav_foot_key = tk.Label(foot, text="F11 全屏 · Ctrl+滚轮 字号",
+        self.nav_foot_key = tk.Label(foot, text="F11 全屏/退出 · Esc 退出",
                                      bg=p["panel"], fg=p["text_muted"],
                                      font=(ui_theme.FONT_MONO, 8), wraplength=238,
                                      justify="left")
@@ -471,8 +482,107 @@ class MainWindow(object):
 
     def _reset_kpi(self):
         self._run_started_at = None
+        self._planned_total = 0
         for key in ("total", "success", "fail", "elapsed"):
             self.set_kpi(key, "—", "尚未运行")
+
+    def _on_device_count(self, path, count, errors):
+        """清单加载完成 → 立刻回填「设备总数」。
+
+        设计稿 preview.html 写的是「设备总数 243 台 / 本次清单已加载」，
+        即开工前就要看到要跑多少台，而不是等任务结束才有值。
+        """
+        self._planned_total = int(count or 0)
+        try:
+            st = os.stat(path)
+            self._dev_count_cache[path] = (
+                (st.st_mtime_ns, st.st_size), self._planned_total,
+                list(errors or []))
+        except OSError:
+            pass
+        if self._planned_total <= 0:
+            return
+        sub = "本次清单已加载"
+        if errors:
+            sub += " · %d 条提示" % len(errors)
+        self.set_kpi("total", self._planned_total, sub)
+
+    def _sync_device_count_from_form(self):
+        """表单值恢复/重建后按清单回填设备总数（缓存命中就不重读 Excel）。"""
+        form = getattr(self, "form", None)
+        if form is None:
+            return
+        path = ""
+        for spec in getattr(form, "params", []):
+            if getattr(spec, "type", "") == "device_list":
+                var = form.vars.get(spec.key)
+                path = str(var.get() or "").strip() if var is not None else ""
+                break
+        if not path or not os.path.isfile(path):
+            return
+        try:
+            st = os.stat(path)
+            fp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return
+        hit = self._dev_count_cache.get(path)
+        if hit and hit[0] == fp:
+            try:
+                form.set_device_count(hit[1], hit[2])
+            except Exception:
+                pass
+            self._on_device_count(path, hit[1], hit[2])
+            return
+        try:
+            form.refresh_device_count(path)   # 内部会回调 _on_device_count 并落缓存
+        except Exception:
+            pass
+
+    def _kpi_snapshot(self):
+        """四张卡当前显示的文字 —— 切工具时随输出缓存一起带走。
+
+        原来 on_select_tool 无条件 _reset_kpi()，跑完任务切到别的工具再切回来，
+        结果表恢复了但 KPI 永远停在「— 尚未运行」。
+        """
+        snap = {"__planned__": int(getattr(self, "_planned_total", 0) or 0)}
+        for key, rec in self._kpi_cards.items():
+            try:
+                snap[key] = (rec[0].cget("text"), rec[1].cget("text"))
+            except Exception:
+                pass
+        return snap
+
+    def _kpi_apply(self, snap):
+        self._planned_total = int((snap or {}).get("__planned__", 0) or 0)
+        for key in ("total", "success", "fail", "elapsed"):
+            pair = (snap or {}).get(key)
+            self.set_kpi(key, pair[0] if pair else "—",
+                         pair[1] if pair else "尚未运行")
+
+    def _set_kpi_from_rows(self, rows, source):
+        """engine 没跑过时按结果表实际行数回填（历史文件 / 定时结果）。"""
+        total = len(rows)
+        success = partial = skipped = fail = 0
+        for item in rows:
+            status = (str(item[1]).upper()
+                      if isinstance(item, (tuple, list)) and len(item) > 1
+                      else "OK")
+            if status == "OK":
+                success += 1
+            elif status == "PARTIAL_OK":
+                partial += 1
+            elif status == "SKIPPED":
+                skipped += 1
+            else:
+                fail += 1
+        bad = fail + partial
+        self.set_kpi("total", total, source)
+        self.set_kpi("success", success,
+                     ("成功率 %.1f%%" % (success * 100.0 / total)) if total else "—")
+        self.set_kpi("fail", bad,
+                     ("含 %d 台部分成功" % partial) if partial
+                     else ("全部成功" if total and not bad else "—"))
+        self.set_kpi("elapsed", "—", source)
 
     def _update_kpi_from_engine(self, done=False):
         """从 engine.stats 读数（只用于显示，不参与状态判断）。"""
@@ -484,9 +594,14 @@ class MainWindow(object):
         success = stats.get("success", 0)
         partial = stats.get("partial", 0)
         fail = stats.get("fail", 0) + partial
-        self.set_kpi("total", total, "本次已处理" if done else "处理中…")
+        # 清单已加载时「设备总数」保持清单台数（设计稿口径），
+        # 不用随已处理行数从 0 往上爬；没清单的工具才退回 engine.stats
+        planned = int(getattr(self, "_planned_total", 0) or 0)
+        shown_total = planned or total
+        self.set_kpi("total", shown_total, "本次已处理" if done else "处理中…")
         self.set_kpi("success", success,
-                     ("成功率 %.1f%%" % (success * 100.0 / total)) if total else "—")
+                     ("成功率 %.1f%%" % (success * 100.0 / shown_total))
+                     if shown_total else "—")
         self.set_kpi("fail", fail,
                      ("含 %d 台部分成功" % partial) if partial
                      else ("全部成功" if done else "—"))
@@ -627,14 +742,14 @@ class MainWindow(object):
         self.btn_fold.pack(side="left", padx=(0, 6))
         self._bind_icon(self.btn_fold, "chevron_up", 16)
 
-        # 右侧（从右往左）：百分比 / 细进度条 / 进度计数 / 当前设备
-        # 进度条用自绘 Meter 而不是 Floodgauge：Floodgauge 只能用主题自带的
-        # primary 蓝（#375a7f），缩到 33px 高之后就是一块和品牌青撞色的蓝方块。
+        # 右侧状态文字（从右往左）先占位，剩下的横向空间整段留给进度条。
+        # 原来固定 150px 且 pack(side="right")，全挤在窗口最右边，浅色主题下
+        # 几乎看不见；改成撑满中间空白后视觉重心才和按钮组对齐。
+        # 用自绘 Meter 而非 Floodgauge：后者只能用主题自带的 primary 蓝
+        # （#375a7f），和品牌青撞色。
         self.progress_value = ttk.Label(prog, text="0%", width=5,
                                         style="Mono.TLabel", anchor="e")
         self.progress_value.pack(side="right", padx=(8, 2))
-        self.progress = ui_widgets.Meter(prog, width=150, height=22, p=p)
-        self.progress.pack(side="right", padx=(10, 0))
         self.progress_label = ttk.Label(prog, text="尚未运行", width=9,
                                         bootstyle="secondary", anchor="e")
         self.progress_label.pack(side="right", padx=(0, 6))
@@ -643,6 +758,8 @@ class MainWindow(object):
         self.current_label = ttk.Label(prog, text="", width=26,
                                        bootstyle="secondary", anchor="e")
         self.current_label.pack(side="right", padx=(0, 10))
+        self.progress = ui_widgets.Meter(prog, width=260, height=24, p=p, thick=8)
+        self.progress.pack(side="left", fill="x", expand=True, padx=(14, 8))
 
         # 结果输出区（页签按工具的 output_tabs 声明动态重建）
         self.tabs = ui_widgets.TabView(lower, p, font_family=FONT_FAMILY)
@@ -993,6 +1110,16 @@ class MainWindow(object):
             self._sched_sync_job = self.root.after(600, self._sync_sched_params)
         except Exception:
             pass
+        # 手敲清单路径或自动回填时也要更新「设备总数」：防抖 400ms，
+        # 内部按文件指纹缓存，路径没输完（文件不存在）直接跳过，不读 Excel
+        try:
+            job = getattr(self, "_dev_count_job", None)
+            if job:
+                self.root.after_cancel(job)
+            self._dev_count_job = self.root.after(
+                400, self._sync_device_count_from_form)
+        except Exception:
+            pass
 
     def _watch_form_vars(self):
         """监听当前表单的所有变量，变化时同步定时参数快照。"""
@@ -1013,8 +1140,10 @@ class MainWindow(object):
         bar = ttk.Frame(self.form_frame)
         # 必须用 grid：form_frame 里的参数控件都由 FormBuilder 用 grid 管理，
         # 混用 pack 会抛 "cannot use geometry manager pack inside ..."。
+        # 多跨一列（参数列 + 右侧留白列）：参数列宽度封顶后，定时条若只
+        # 跨参数列会被挤到 320px，右侧三个按钮会被裁掉
         bar.grid(row=self.form.footer_row(), column=0,
-                 columnspan=self.form.footer_span(),
+                 columnspan=self.form.footer_span() + 1,
                  sticky="ew", pady=(10, 0))
         ttk.Label(bar, text="定时执行", bootstyle="secondary").pack(side="left")
         self.var_sched_at = tk.StringVar(value=item.get("at", "08:30"))
@@ -1630,7 +1759,8 @@ class MainWindow(object):
             pass
         # 参数区宽度决定排两列还是一列（窄窗口排两列会把第二列切在右边缘）
         self.form = FormBuilder(self.form_frame, tool.params,
-                                avail_width=self._form_avail_width())
+                                avail_width=self._form_avail_width(),
+                                on_device_count=self._on_device_count)
         self._restore_form_values(tool)
         # 监听表单变化：改归档目录/清单等立即同步到定时参数快照
         self._watch_form_vars()
@@ -1660,6 +1790,8 @@ class MainWindow(object):
 
         # 恢复该工具上次的输出（若有），否则全部清空
         self._restore_outputs(tool)
+        # 清单值恢复后回填「设备总数」（缓存命中不重读 Excel）
+        self._sync_device_count_from_form()
 
         self.progress_label.configure(text="尚未运行")
         self.progress.configure(value=0)
@@ -1726,7 +1858,9 @@ class MainWindow(object):
             panel = ttk.Frame(self.form_frame)
             panel.grid(row=0, column=self.form.cols, rowspan=rowspan, sticky="nsew",
                        padx=(6, 8), pady=(4, 4))
-            self.form_frame.columnconfigure(4, weight=2, minsize=200)
+            # 面板占的是「参数列之后那一列」，不能写死 4（单列表单时是第 1 列）
+            self.form_frame.columnconfigure(self.form.cols, weight=1,
+                                           minsize=240)
 
             ttk.Label(panel, text="历史结果（结果输出目录）",
                       bootstyle="secondary").pack(anchor="w")
@@ -1886,6 +2020,7 @@ class MainWindow(object):
             self.result_view.refresh()
             self._select_tab("result")
             self.log_view.append("INFO", "已载入历史结果：%s（%d 行）" % (name, len(rows)))
+            self._set_kpi_from_rows(self.result_view.rows, "历史结果")
             self._save_outputs()
         except Exception as exc:
             Messagebox.show_error(str(exc), title="载入失败", parent=self.root)
@@ -2023,13 +2158,15 @@ class MainWindow(object):
             for child in self.form_frame.winfo_children():
                 child.destroy()
             self.form = FormBuilder(self.form_frame, self.current_tool.params,
-                                    avail_width=width)
+                                    avail_width=width,
+                                    on_device_count=self._on_device_count)
             for k, v in vals.items():
                 if k in self.form.vars:
                     try:
                         self.form.vars[k].set(v)
                     except Exception:
                         pass
+            self._sync_device_count_from_form()
             self._add_font_row()
             # 重建后定时条和历史结果面板都要重新挂上（否则窗口缩放一次就消失）
             if self.current_tool is not None:
@@ -2224,6 +2361,7 @@ class MainWindow(object):
             "charts": self.chart_view.get_state(),
             "logs": self.log_view.get_state(),
             "summary": self._get_summary_text(),
+            "kpi": self._kpi_snapshot(),
         }
 
     def _restore_outputs(self, tool):
@@ -2237,12 +2375,14 @@ class MainWindow(object):
             self.chart_view.set_state(cached["charts"])
             self.log_view.set_state(cached["logs"])
             self._set_summary_text(cached["summary"])
+            self._kpi_apply(cached.get("kpi"))
         else:
             self.result_view.set_columns(tool.result_columns)
             self.result_view.clear()
             self.chart_view.clear()
             self.log_view.clear()
             self._set_summary_text("尚未运行任务。\n")
+            self._kpi_apply(None)
 
     # —— 摘要文本读写 ——
     def _get_summary_text(self):
@@ -2335,6 +2475,9 @@ class MainWindow(object):
             self._update_kpi_from_engine()
         elif value == "result":
             self.result_view.add_row(payload.get("row", []), payload.get("status", ""))
+            # 不发 progress 的工具也让 KPI 跟着结果走，节流到每 25 行一次
+            if len(self.result_view.rows) % 25 == 0:
+                self._update_kpi_from_engine()
         elif value == "chart":
             # 图表消息：渲染到「图表」标签页并自动切过去
             self.chart_view.add_figure(payload.get("figure"), payload.get("title", ""))
@@ -2346,6 +2489,9 @@ class MainWindow(object):
             state = self.engine.state
             self.set_state(state)
             self._update_kpi_from_engine(done=True)
+            # 引擎 stats 为 0 但结果表有行时按行数兜底，避免 KPI 空着
+            if not (getattr(self.engine, "stats", None) or {}).get("total"):
+                self._set_kpi_from_rows(self.result_view.rows, "本次运行")
             self.result_view.refresh()
             self._set_path_label(self.engine.output_dir or "")
             self.log_view.append("INFO", "任务结束：%s，结果目录：%s"
