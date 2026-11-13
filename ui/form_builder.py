@@ -186,11 +186,15 @@ class FormBuilder(object):
         # 还留着 weight=2，会把剩余宽度吞掉一半变成死空白）。
         for c in range(6):
             self.master.columnconfigure(c, weight=0, minsize=0)
-        # 参数列不再分摊剩余宽度（weight=1 会把单列表单的输入框拉成 1000px+）；
-        # 多余的横向空间统一交给末尾第 cols 列（历史结果面板或留白）。
+        # 参数列不再分摊剩余宽度（weight=1 会把单列表单的输入框拉成 1000px+）。
+        # 第 cols 列留给「历史结果」面板，第 cols+1 列是留白；
+        # 面板列的 minsize 由 main_window._sync_hist_width 按窗口宽度动态设置，
+        # 让面板和 KPI 卡一样随窗口/全屏等比伸缩，留白列吃掉其余空间。
+        # 没有结果面板的工具这里保持 cols 列 0 权重、留白吃满，不会变长条。
         for c in range(cols):
             self.master.columnconfigure(c, weight=0, minsize=WIDGET_MIN_W)
-        self.master.columnconfigure(cols, weight=1, minsize=0)
+        self.master.columnconfigure(cols, weight=0, minsize=0)
+        self.master.columnconfigure(cols + 1, weight=1, minsize=0)
         # 排布所需的最小宽度：参数区比它还窄时才需要横向滚动
         self.min_width = cols * CELL_MAX_W + (cols - 1) * COL_GAP + 26
 

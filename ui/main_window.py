@@ -181,6 +181,8 @@ class MainWindow(object):
         # 焦点落到输入框/结果表后快捷键收不到，进全屏就退不出来。
         self.root.bind_all("<F11>", lambda e: self.toggle_fullscreen())
         self.root.bind_all("<Escape>", lambda e: self.toggle_fullscreen(False))
+        # 滚轮只注册这一个全局分发器（导航区/参数区不再各自抢占 bind_all）
+        self.root.bind_all("<MouseWheel>", self._on_global_wheel)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def toggle_fullscreen(self, force=None):
@@ -333,8 +335,11 @@ class MainWindow(object):
 
         wrap = tk.Frame(left, bg=p["panel"])
         wrap.pack(side="top", fill="both", expand=True)
+        # yscrollincrement 默认 0 时 Canvas 的 "units" = 视口高度的 1/10，
+        # 滚一格会整块跳 ~60px（现场反馈「一滚就往下移」）；按一行工具的高度
+        # 固定成 26px，一格滚轮 ≈ 一行。
         self.nav_canvas = tk.Canvas(wrap, bg=p["panel"], highlightthickness=0,
-                                    borderwidth=0)
+                                    borderwidth=0, yscrollincrement=26)
         self.nav_canvas.pack(side="left", fill="both", expand=True)
         self.nav_sbar = ttk.Scrollbar(wrap, orient="vertical",
                                       command=self.nav_canvas.yview,
@@ -345,8 +350,6 @@ class MainWindow(object):
                                                       anchor="nw")
         self.nav_inner.bind("<Configure>", self._on_nav_inner_configure)
         self.nav_canvas.bind("<Configure>", self._on_nav_canvas_configure)
-        self.nav_canvas.bind("<Enter>", self._bind_nav_wheel)
-        self.nav_canvas.bind("<Leave>", self._unbind_nav_wheel)
 
         foot = tk.Frame(left, bg=p["panel"])
         foot.pack(side="bottom", fill="x", padx=12, pady=(6, 10))
@@ -372,10 +375,17 @@ class MainWindow(object):
                                    font=(FONT_FAMILY, 9), wraplength=230,
                                    justify="left")
 
-    # —— 导航列表滚动（与参数区滚动同一套写法，互不干扰）——
+    # —— 导航列表滚动 ——
     def _on_nav_inner_configure(self, _event=None):
         try:
-            self.nav_canvas.configure(scrollregion=self.nav_canvas.bbox("all"))
+            # 起点必须锁 0：bbox("all") 会带回上一次滚动/旧内容的偏移，
+            # 内容变短后残留的大 scrollregion 能让视图滚到内容之外，
+            # 顶部露出一大片空白（现场截图里搜索框下面那块）
+            self.nav_canvas.configure(scrollregion=(
+                0, 0,
+                max(1, self.nav_inner.winfo_reqwidth(),
+                    self.nav_canvas.winfo_width()),
+                max(1, self.nav_inner.winfo_reqheight())))
         except Exception:
             pass
 
@@ -395,15 +405,54 @@ class MainWindow(object):
         except Exception:
             pass
 
-    def _bind_nav_wheel(self, _e=None):
-        self.nav_canvas.bind_all("<MouseWheel>", self._on_nav_wheel)
+    def _wheel_target(self, widget):
+        """按 event.widget 的父链判断该滚哪个 Canvas。
 
-    def _unbind_nav_wheel(self, _e=None):
-        self.nav_canvas.unbind_all("<MouseWheel>")
-
-    def _on_nav_wheel(self, event):
+        Listbox / Text / Treeview 自带滚轮滚动，直接放行，避免双重滚动。
+        """
         try:
-            self.nav_canvas.yview_scroll(int(-event.delta / 120), "units")
+            cur = widget
+            for _ in range(10):
+                if cur is None:
+                    return None
+                if cur is self.nav_canvas or cur is self.form_canvas:
+                    return cur
+                if cur.winfo_class() in ("Listbox", "Text", "Treeview"):
+                    return None
+                parent = cur.winfo_parent()
+                if not parent:
+                    return None
+                nxt = cur.nametowidget(parent)
+                if nxt is cur:
+                    return None
+                cur = nxt
+        except Exception:
+            return None
+        return None
+
+    def _on_global_wheel(self, event):
+        """全应用唯一的滚轮分发器。
+
+        原来导航区和参数区各自 bind_all/unbind_all("<MouseWheel>")：
+        同一序列的 all 绑定只有一个槽位，两者互相覆盖，Leave 时的
+        unbind_all 还会把对方刚绑上的解掉 —— 滚轮时而在导航区滚到参数区，
+        时而整块列表被推走。这里按鼠标落点分发，一次绑定、互不干扰。
+        """
+        try:
+            canvas = self._wheel_target(getattr(event, "widget", None))
+            if canvas is None:
+                return
+            first, last = canvas.yview()
+            # 内容没超出视口就完全不滚：否则会把视图推离 0，顶部露出空白
+            if float(first) <= 0.0 and float(last) >= 1.0:
+                return
+            delta = int(getattr(event, "delta", 0) or 0)
+            if not delta:
+                return
+            steps = int(-delta / 120.0)
+            if steps == 0:                 # 触控板小 delta 也按方向滚一格
+                steps = 1 if delta < 0 else -1
+            canvas.yview_scroll(steps, "units")
         except Exception:
             pass
 
@@ -665,7 +714,7 @@ class MainWindow(object):
         self.form_holder.columnconfigure(0, weight=1)
         self.form_holder.rowconfigure(0, weight=1)
         self.form_canvas = tk.Canvas(self.form_holder, highlightthickness=0,
-                                     borderwidth=0)
+                                     borderwidth=0, yscrollincrement=24)
         self.form_canvas.grid(row=0, column=0, sticky="nsew")
         self.form_sbar = ttk.Scrollbar(self.form_holder, orient="vertical",
                                        command=self.form_canvas.yview,
@@ -706,8 +755,6 @@ class MainWindow(object):
                                                         anchor="nw")
         self.form_card.bind("<Configure>", self._on_form_inner_configure)
         self.form_canvas.bind("<Configure>", self._on_form_canvas_configure)
-        self.form_canvas.bind("<Enter>", self._bind_form_wheel)
-        self.form_canvas.bind("<Leave>", self._unbind_form_wheel)
         self.vsplit.add(self.form_holder, weight=0)
 
         lower = ttk.Frame(self.vsplit)
@@ -1140,10 +1187,10 @@ class MainWindow(object):
         bar = ttk.Frame(self.form_frame)
         # 必须用 grid：form_frame 里的参数控件都由 FormBuilder 用 grid 管理，
         # 混用 pack 会抛 "cannot use geometry manager pack inside ..."。
-        # 多跨一列（参数列 + 右侧留白列）：参数列宽度封顶后，定时条若只
+        # 跨参数列 + 历史面板列 + 末尾留白列：参数列宽度封顶后，定时条若只
         # 跨参数列会被挤到 320px，右侧三个按钮会被裁掉
         bar.grid(row=self.form.footer_row(), column=0,
-                 columnspan=self.form.footer_span() + 1,
+                 columnspan=self.form.footer_span() + 2,
                  sticky="ew", pady=(10, 0))
         ttk.Label(bar, text="定时执行", bootstyle="secondary").pack(side="left")
         self.var_sched_at = tk.StringVar(value=item.get("at", "08:30"))
@@ -1846,6 +1893,7 @@ class MainWindow(object):
         """在参数区右侧列出「结果输出目录」里的历史结果，双击载入结果表。"""
         self._files_panel = None
         self._files_list = None
+        self._files_sbar = None
         self._files_job = None
         self._files_folder_last = None
         self._result_files = []
@@ -1856,22 +1904,31 @@ class MainWindow(object):
         try:
             rowspan = max(1, self.form.footer_row())
             panel = ttk.Frame(self.form_frame)
-            panel.grid(row=0, column=self.form.cols, rowspan=rowspan, sticky="nsew",
+            # sticky="new"：面板水平撑满自己那一列、按内容高度收拢，
+            # 不被 rowspan 纵向拉成一个大空框
+            panel.grid(row=0, column=self.form.cols, rowspan=rowspan, sticky="new",
                        padx=(6, 8), pady=(4, 4))
-            # 面板占的是「参数列之后那一列」，不能写死 4（单列表单时是第 1 列）
-            self.form_frame.columnconfigure(self.form.cols, weight=1,
-                                           minsize=240)
+            # 面板占的是「参数列之后那一列」，不能写死 4（单列表单时是第 1 列）。
+            # 宽度由 _sync_hist_width 按窗口宽度动态给 minsize（≈ 一张 KPI 卡），
+            # 留白列吃掉其余空间 —— 面板不会吞掉 100% 剩余宽度变回长条。
+            self.form_frame.columnconfigure(self.form.cols, weight=0,
+                                           minsize=260)
+            self.form_frame.columnconfigure(self.form.cols + 1, weight=1,
+                                           minsize=0)
+            self._sync_hist_width()
 
             ttk.Label(panel, text="历史结果（结果输出目录）",
                       bootstyle="secondary").pack(anchor="w")
             box = ttk.Frame(panel)
-            box.pack(fill="both", expand=True, pady=(4, 2))
+            box.pack(fill="x", pady=(4, 2))
             sb = ttk.Scrollbar(box, orient="vertical")
+            # 默认 4 行（≈ 一张 KPI 卡高度），由 _set_files_list_height 按
+            # 实际条目在 4~6 行之间调整，既不留大空框也不缩成一条
             lb = tk.Listbox(box, yscrollcommand=sb.set, activestyle="none",
-                            exportselection=False, height=6)
+                            exportselection=False, height=4)
             sb.configure(command=lb.yview)
             sb.pack(side="right", fill="y")
-            lb.pack(side="left", fill="both", expand=True)
+            lb.pack(side="left", fill="x", expand=True)
             lb.bind("<Double-Button-1>", lambda e: self._open_selected_result())
 
             ttk.Label(panel, text="双击载入结果表", bootstyle="secondary").pack(anchor="w")
@@ -1884,6 +1941,7 @@ class MainWindow(object):
 
             self._files_panel = panel
             self._files_list = lb
+            self._files_sbar = sb
             self._refresh_result_files()
         except Exception:
             self._files_panel = None
@@ -1934,6 +1992,52 @@ class MainWindow(object):
             self._files_folder_last = None
         self._refresh_result_files()
 
+    def _sync_hist_width(self, canvas_w=None):
+        """历史结果框按窗口宽度自适应，始终约等于一张 KPI 卡。
+
+        KPI 条是 4 列等分主区，所以这里也按「主区宽度 / 4」给面板列，
+        普通窗口 ≈ 300px、F11 全屏 ≈ 400px；封顶 420px 防止超宽屏被拉成长条。
+        窗口 Configure 时会重新调用，最大化/还原/F11 全屏都跟着变。
+        """
+        panel = getattr(self, "_files_panel", None)
+        if panel is None:
+            return
+        try:
+            w = canvas_w if canvas_w else self.form_canvas.winfo_width()
+            if not w or w <= 60:
+                return
+            target = max(260, min(420, int(w / 4.0)))
+            self.form_frame.columnconfigure(self.form.cols, weight=0,
+                                           minsize=target)
+            self.form_frame.columnconfigure(self.form.cols + 1, weight=1,
+                                           minsize=0)
+        except Exception:
+            pass
+
+    def _set_files_list_height(self, count):
+        """列表高度：空目录也保持 4 行（约一张 KPI 卡大小），最多 6 行。
+
+        收到 1 行又太小、固定 6 行又太空，按现场给的 KPI 卡尺寸取 4 行；
+        条目超过 6 行才用滚动条。
+        """
+        lb = getattr(self, "_files_list", None)
+        if lb is None:
+            return
+        try:
+            lb.configure(height=min(6, max(4, int(count or 0))))
+        except Exception:
+            pass
+        # 条目不超过可视行数时不必挂滚动条，空目录别留一根细竖条
+        sb = getattr(self, "_files_sbar", None)
+        if sb is not None:
+            try:
+                if count > 6:
+                    sb.pack(side="right", fill="y")
+                else:
+                    sb.pack_forget()
+            except Exception:
+                pass
+
     def _refresh_result_files(self):
         """重新扫描结果输出目录，刷新文件列表。
 
@@ -1948,6 +2052,7 @@ class MainWindow(object):
         try:
             lb.delete(0, "end")
             lb.insert("end", "（正在扫描目录…）")
+            self._set_files_list_height(0)
         except Exception:
             return
         folder = self._result_files_folder()
@@ -1956,6 +2061,7 @@ class MainWindow(object):
             try:
                 lb.delete(0, "end")
                 lb.insert("end", "（先在参数里填「结果输出目录」）")
+                self._set_files_list_height(0)
             except Exception:
                 pass
             return
@@ -1988,10 +2094,12 @@ class MainWindow(object):
             return
         if not files:
             lb.insert("end", "（目录里还没有结果文件）")
+            self._set_files_list_height(0)
             return
         self._result_files = files
         for name, _path in files:
             lb.insert("end", name)
+        self._set_files_list_height(len(files))
 
     def _open_selected_result(self):
         """双击历史结果 → 读成结果表显示。"""
@@ -2115,10 +2223,20 @@ class MainWindow(object):
         """
         try:
             need = int(getattr(self.form, "min_width", 0) or 0)
+            # 历史面板有 260px 的最小宽度，窗口变窄时别把它裁掉
+            panel = getattr(self, "_files_panel", None)
+            if panel is not None:
+                try:
+                    if panel.winfo_ismapped():
+                        need += 276
+                except Exception:
+                    pass
             self.form_canvas.itemconfigure(self._form_win,
                                            width=max(event.width, need))
         except Exception:
             pass
+        # 窗口/全屏尺寸变化 → 历史结果框跟着重新定宽（和 KPI 卡同步伸缩）
+        self._sync_hist_width(event.width)
         self._schedule_form_reflow(event.width)
 
     def _schedule_form_reflow(self, width):
@@ -2195,18 +2313,6 @@ class MainWindow(object):
                 self.form_hbar.grid_remove()
             else:
                 self.form_hbar.grid(row=1, column=0, sticky="ew")
-        except Exception:
-            pass
-
-    def _bind_form_wheel(self, _e=None):
-        self.form_canvas.bind_all("<MouseWheel>", self._on_form_wheel)
-
-    def _unbind_form_wheel(self, _e=None):
-        self.form_canvas.unbind_all("<MouseWheel>")
-
-    def _on_form_wheel(self, event):
-        try:
-            self.form_canvas.yview_scroll(int(-event.delta / 120), "units")
         except Exception:
             pass
 
