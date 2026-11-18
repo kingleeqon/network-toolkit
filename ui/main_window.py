@@ -20,6 +20,7 @@ import re
 import threading
 import time
 import tkinter as tk
+from datetime import datetime
 import ttkbootstrap as ttk
 from pathlib import Path
 from ttkbootstrap.dialogs import Messagebox
@@ -38,6 +39,7 @@ from ui.auto_task_dialog import open_dialog as open_auto_task
 from ui.schedule_overview import open_dialog as open_schedule_overview
 from ui.credential_dialog import open_dialog as open_credential
 from ui import theme as ui_theme
+from ui import toggle_style
 from ui import icons
 from ui import widgets as ui_widgets
 
@@ -177,6 +179,9 @@ class MainWindow(object):
         self.root.after(2000, self._tick_sched_status)
         self._apply_font_size()
         self._poll()
+        # 拨钮图片是 ttkbootstrap 按需生成的：布局刚建完时可能还没生成，
+        # 等事件循环跑一拍后再补一次换色（主题切换/切工具也各自会装）
+        self.root.after_idle(lambda: toggle_style.install(ttk.Style(), self._theme_mode))
         # F11 全屏 / Esc 退出全屏。必须 bind_all：bind 只挂在根窗口上，
         # 焦点落到输入框/结果表后快捷键收不到，进全屏就退不出来。
         self.root.bind_all("<F11>", lambda e: self.toggle_fullscreen())
@@ -1057,6 +1062,7 @@ class MainWindow(object):
                 self.result_view.set_columns(columns or self.result_view.columns)
                 self.result_view.rows = rows
                 self.result_view.refresh()
+            self._set_kpi_from_task_dir(output_dir, "定时任务")
             self._save_outputs()
         else:
             # 用户在看别的工具：进缓存，切过去时 _restore_outputs 会带出来
@@ -1071,7 +1077,69 @@ class MainWindow(object):
             if rows:
                 cached["columns"] = columns or cached.get("columns") or []
                 cached["rows"] = rows
+            # KPI 也要按工具存快照，否则切过去看到的是别的工具的 KPI
+            cached["kpi"] = self._kpi_snapshot_for_task_dir(
+                output_dir, "定时任务")
         self._refresh_result_files()
+
+    def _kpi_snapshot_for_task_dir(self, output_dir, source):
+        """不碰界面控件，从 summary.json 生成一份 KPI 快照供缓存用。"""
+        saved = self._kpi_snapshot()
+        saved["__planned__"] = 0   # 定时任务的清单台数不沿用当前工具，防串台
+        try:
+            data = json.loads((Path(output_dir) / "summary.json")
+                              .read_text(encoding="utf-8"))
+            stats = data.get("stats") or {}
+            total = int(stats.get("total", 0) or 0)
+            success = int(stats.get("success", 0) or 0)
+            fail = int(stats.get("fail", 0) or 0) + int(stats.get("partial", 0) or 0)
+            shown = total
+            rate = ("成功率 %.1f%%" % (success * 100.0 / shown)) if shown else "—"
+            saved["total"] = (shown, source)
+            saved["success"] = (success, rate)
+            saved["fail"] = (fail, "全部成功" if total and not fail else "—")
+            try:
+                a = datetime.fromisoformat(data.get("started_at") or "")
+                b = datetime.fromisoformat(data.get("finished_at") or "")
+                secs = max(0, int((b - a).total_seconds()))
+                saved["elapsed"] = ("%02d:%02d" % (secs // 60, secs % 60), "已完成")
+            except Exception:
+                saved["elapsed"] = ("—", source)
+        except Exception:
+            pass
+        return saved
+
+    def _set_kpi_from_task_dir(self, output_dir, source):
+        """从定时任务目录的 summary.json 回填 KPI（子进程跑的，不走界面消息）。
+
+        耗时用 summary 的 started_at/finished_at 算；老任务没有这两个字段就
+        留「—」，不拿当前时间硬算（否则隔天看定时结果是几十小时的假耗时）。
+        """
+        if not output_dir:
+            return
+        try:
+            data = json.loads((Path(output_dir) / "summary.json")
+                              .read_text(encoding="utf-8"))
+        except Exception:
+            return
+        stats = data.get("stats") or {}
+        total = int(stats.get("total", 0) or 0)
+        success = int(stats.get("success", 0) or 0)
+        fail = int(stats.get("fail", 0) or 0) + int(stats.get("partial", 0) or 0)
+        planned = int(getattr(self, "_planned_total", 0) or 0)
+        shown = planned or total
+        self.set_kpi("total", shown, source)
+        self.set_kpi("success", success,
+                     ("成功率 %.1f%%" % (success * 100.0 / shown)) if shown else "—")
+        self.set_kpi("fail", fail,
+                     ("全部成功" if total and not fail else "—"))
+        try:
+            a = datetime.fromisoformat(data.get("started_at") or "")
+            b = datetime.fromisoformat(data.get("finished_at") or "")
+            secs = max(0, int((b - a).total_seconds()))
+            self.set_kpi("elapsed", "%02d:%02d" % (secs // 60, secs % 60), "已完成")
+        except Exception:
+            self.set_kpi("elapsed", "—", source)
 
     def _load_sched_rows(self, output_dir):
         """读定时运行落盘的 result.json → (columns, [(row, status), ...])。
@@ -1363,6 +1431,9 @@ class MainWindow(object):
         # 主题切换会重置 ttk.Style，需重新套用字号
         self._apply_font_size()
         self.set_state(self.engine.state)
+        # theme_use 重建了拨钮图片，等事件循环跑一拍再换色（此时图才齐全）
+        self.root.after_idle(
+            lambda: toggle_style.install(ttk.Style(), self._theme_mode))
 
     # —— 运行时图标 ——
     def _bind_icon(self, widget, name, size=16, color_key="text_secondary",
@@ -1523,6 +1594,12 @@ class MainWindow(object):
                          foreground=p["danger"])
             st.configure("secondary.Inverse.TLabel", background=elev,
                          foreground=fg)
+            # 拨钮：ttkbootstrap 默认 round-toggle 的 on 色是主题 primary
+            # （本项目为蓝/黑），且颜色烘在图片里 configure 改不到。
+            # 自建 OpsToggle 样式，开=语义绿、关=中性灰；theme_use 会清掉
+            # 自定义样式，所以每次主题刷新都要重装（图片按当前模式重画）。
+            toggle_style.install(st, self._theme_mode)
+
             for name in ("Round.Toggle", "secondary.Round.Toggle"):
                 st.configure(name, background=app, foreground=fg)
             # tk 原生控件的默认底色也归到蓝调（显式 bg= 的仍然优先）
@@ -1813,6 +1890,9 @@ class MainWindow(object):
         self._watch_form_vars()
         self._fill_recent_device_list()
         self._build_sched_bar(tool)
+        # 切工具会新建表单/定时条里的拨钮，ttkbootstrap 按需生成的图片是新的，
+        # 必须再换一次色（主题刷新只覆盖当时已存在的那批）
+        toggle_style.install(ttk.Style(), self._theme_mode)
         self._add_font_row()
         # 参数区右侧的「历史结果」面板（工具声明了 result_files_param 才有）
         self._build_result_files_panel(tool)

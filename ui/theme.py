@@ -71,7 +71,7 @@ PALETTES = {
     },
 }
 
-# —— 工具分类：色 + 几何标记（tk 里不用 SVG，避免引入图标库）——
+# —— 工具分类：色 + 线性图标（tk 里不引入图标库，图标由 icons.py 运行时画）——
 CATEGORY_COLORS = {
     "采集分析类": ("#22d3ee", "#0e8ba8"),
     "解析类":     ("#a78bfa", "#7c5cd6"),
@@ -80,16 +80,7 @@ CATEGORY_COLORS = {
     "会话管理类": ("#34d399", "#0b8a61"),
     "示例":       ("#94a3b8", "#64748b"),
 }
-CATEGORY_MARKS = {
-    "采集分析类": "◆",
-    "解析类":     "◇",
-    "工具类":     "■",
-    "检查类":     "▲",
-    "会话管理类": "●",
-    "示例":       "○",
-}
 DEFAULT_CATEGORY_COLOR = ("#94a3b8", "#64748b")
-DEFAULT_CATEGORY_MARK = "◇"
 
 # 分类 / 标签页 → icons.py 里的线性图标名
 CATEGORY_ICONS = {
@@ -147,10 +138,6 @@ def category_color(category, mode):
     """分类色：深色/浅色各一份。"""
     pair = CATEGORY_COLORS.get(category, DEFAULT_CATEGORY_COLOR)
     return pair[1] if mode == "light" else pair[0]
-
-
-def category_mark(category):
-    return CATEGORY_MARKS.get(category, DEFAULT_CATEGORY_MARK)
 
 
 def category_icon(category):

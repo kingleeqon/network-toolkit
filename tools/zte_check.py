@@ -4,8 +4,6 @@
 检查接口描述规范（启用接口须有 dT:/uT:/pT: 描述，未启用须 NO_USE）
 与 SNMP 配置（团体字 + ACL 2333），输出检查报告 Excel。
 """
-import re
-
 from core.tool_base import BaseTool, ParamSpec
 
 # 关注的接口类型
@@ -75,10 +73,16 @@ class ZteCheckTool(BaseTool):
     def _check_interfaces(output):
         results = []
         for line in (output or "").split("\n"):
-            m = re.findall(r"(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+)", line)
-            if not m:
+            # 按空白切「前 4 列 + 剩余全部作描述」。
+            # 不能再用 r"(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+)"：那个正则要求描述
+            # 至少 1 个字符，而「启用接口没写描述」往往是整行只剩 4 列（设备不回
+            # 尾随空格、或采集侧 rstrip 过），会整行不匹配被**静默跳过**——既不
+            # PASS 也不 FAIL。而这恰恰是合规检查最该抓的场景，漏了等于白查。
+            parts = line.split(None, 4)
+            if len(parts) < 4:
                 continue
-            if_name, admin, oper, speed, desc = m[0]
+            if_name, admin, oper, speed = parts[0], parts[1], parts[2], parts[3]
+            desc = parts[4] if len(parts) > 4 else ""
             if not any(p in if_name for p in _IFACE_TYPES):
                 continue
             result = {"name": if_name, "status": "PASS"}

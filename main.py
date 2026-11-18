@@ -72,6 +72,10 @@ def _setup_logging(cli_mode=False):
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     root = logging.getLogger()
     root.setLevel(logging.INFO)
+    # paramiko 每连一台就打 Connected / Authentication successful / Auth banner，
+    # 600 台设备能把界面运行日志整屏刷满，真正的进度和结论全被淹没。
+    # 提到 WARNING：连接失败/认证失败仍是 WARNING/ERROR，不会漏报。
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
     for h in list(root.handlers):
         root.removeHandler(h)
     if not cli_mode:
